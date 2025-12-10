@@ -1,0 +1,21 @@
+{
+  "name": "warehouse-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^4.19.2",
+    "openai": "^6.9.1",
+    "ws": "^8.17.0",
+    "xmlrpc": "^1.3.2"
+  }
+}
