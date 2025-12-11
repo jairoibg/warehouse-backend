@@ -22,6 +22,7 @@ const __dirname = path.dirname(__filename);
 //  1. CONFIGURACIÓN DEL SERVIDOR Y SEGURIDAD
 // ==================================================================================
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+console.log("🔑 API Key detectada:", ANTHROPIC_API_KEY ? "SÍ (" + ANTHROPIC_API_KEY.substring(0,20) + "...)" : "NO");
 const PORT = process.env.PORT || 4000;
 const SERVER_HOST = process.env.SERVER_HOST || "localhost";
 
