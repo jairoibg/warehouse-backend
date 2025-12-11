@@ -9,7 +9,7 @@ import fsSync from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { syncWithOdoo, getRealTimeSales } from "./sync_odoo.js";
-import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 
 // --- IMPORTS: Cerebros Lógicos ---
 import { strategicAnalyzer } from "./strategic_analyzer.js";
@@ -21,7 +21,7 @@ const __dirname = path.dirname(__filename);
 // ==================================================================================
 //  1. CONFIGURACIÓN DEL SERVIDOR Y SEGURIDAD
 // ==================================================================================
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const PORT = process.env.PORT || 4000;
 const SERVER_HOST = process.env.SERVER_HOST || "localhost";
 
@@ -29,8 +29,8 @@ const SERVER_HOST = process.env.SERVER_HOST || "localhost";
 const LOCATIONS_FILE = path.join(__dirname, "data", "locations.json");
 const AUDIT_REPORT_FILE = path.join(__dirname, "data", "audit_report.json");
 
-if (!OPENAI_API_KEY) {
-    console.error(" ❌ ERROR CRÍTICO: No se ha encontrado OPENAI_API_KEY en el archivo .env");
+if (!ANTHROPIC_API_KEY) {
+    console.error(" ❌ ERROR CRÍTICO: No se ha encontrado ANTHROPIC_API_KEY en el archivo .env");
     process.exit(1);
 }
 
@@ -39,7 +39,9 @@ if (!fsSync.existsSync(EXPORT_DIR)) {
   fsSync.mkdirSync(EXPORT_DIR);
 }
 
-const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+// Inicializar cliente de Claude
+const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -494,13 +496,13 @@ app.post("/api/strategic-analysis", async (req, res) => {
   }
 });
 
-// 2. Chat Estratégico Conversacional
+// 2. Chat Estratégico Conversacional (AHORA CON CLAUDE)
 app.post("/api/strategic-chat", async (req, res) => {
   try {
     const { question, history } = req.body;
     if (!question) return res.status(400).json({ error: 'Pregunta requerida' });
 
-    console.log('🧠 [CHAT] Pregunta:', question);
+    console.log('🧠 [CHAT CLAUDE] Pregunta:', question);
 
     const dataPath = path.join(__dirname, "data", "locations.json");
     const raw = await fs.readFile(dataPath, "utf8");
@@ -515,17 +517,23 @@ app.post("/api/strategic-chat", async (req, res) => {
       - Problemas críticos: ${intelligence.issues.filter(i => i.type === 'critical').length}
       Responde de forma CONCRETA y ESTRATÉGICA.`;
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        { role: "system", content: systemPrompt },
-        ...(history || []).slice(-4),
-        { role: "user", content: question }
-      ],
-      temperature: 0.7,
+    // Convertir historial al formato de Claude
+    const claudeMessages = [
+      ...(history || []).slice(-4).map(m => ({ 
+        role: m.role === 'ai' ? 'assistant' : 'user', 
+        content: m.content 
+      })),
+      { role: "user", content: question }
+    ];
+
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 2048,
+      system: systemPrompt,
+      messages: claudeMessages
     });
 
-    const answer = completion.choices[0].message.content;
+    const answer = response.content[0].text;
     
     // Iluminar mapa si es relevante
     let highlightIds = [];
@@ -540,7 +548,6 @@ app.post("/api/strategic-chat", async (req, res) => {
     res.json({ 
         answer, 
         map_highlight_ids: highlightIds, 
-        // Enviamos el objeto intelligence COMPLETO para que no falte 'space' ni 'seasons'
         intelligence: intelligence 
     });
   } catch (error) {
@@ -799,72 +806,63 @@ app.post("/api/explain/verify", async (req, res) => {
 });
 
 // ==================================================================================
-//  5. DEFINICIÓN DE HERRAMIENTAS (TOOLS) PARA GPT-4o
+//  5. DEFINICIÓN DE HERRAMIENTAS (TOOLS) PARA CLAUDE
 // ==================================================================================
-const tools = [
+const claudeTools = [
   {
-    type: "function",
-    function: {
-      name: "consultar_almacen",
-      description: "Herramienta TOTAL. Busca Stock, Filtra por Temporada/ABC/Marca y Exporta.",
-      parameters: {
-        type: "object",
-        properties: {
-          status: { type: "string", enum: ["ALL", "EMPTY", "OCCUPIED"] },
-          brand: { type: "string", enum: ["ALL", "BD", "GD", "WD"] },
-          search_text: { type: "string" },
-          min_days_old: { type: "number" },
-          abc_class: { type: "string", enum: ["A", "B", "C", "D"] },
-          season: { type: "string", description: "Filtra por Temporada (ej: 'V26', 'I23')." },
-          min_velocity: { type: "number" },
-          check_mixing_a_d: { type: "boolean" },
-          hide_prices: { type: "boolean" },
-          export_csv: { type: "boolean" },
-          auto_export_if_large: { type: "boolean" }
-        },
-        required: ["auto_export_if_large"],
+    name: "consultar_almacen",
+    description: "Herramienta TOTAL. Busca Stock, Filtra por Temporada/ABC/Marca y Exporta.",
+    input_schema: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["ALL", "EMPTY", "OCCUPIED"], description: "Estado de la ubicación" },
+        brand: { type: "string", enum: ["ALL", "BD", "GD", "WD"], description: "Marca a filtrar" },
+        search_text: { type: "string", description: "Texto libre para buscar" },
+        min_days_old: { type: "number", description: "Antigüedad mínima en días" },
+        abc_class: { type: "string", enum: ["A", "B", "C", "D"], description: "Clase ABC" },
+        season: { type: "string", description: "Filtra por Temporada (ej: 'V26', 'I23')." },
+        min_velocity: { type: "number", description: "Velocidad mínima de rotación" },
+        check_mixing_a_d: { type: "boolean", description: "Buscar mezclas A+D" },
+        hide_prices: { type: "boolean", description: "Ocultar precios" },
+        export_csv: { type: "boolean", description: "Exportar a CSV" },
+        auto_export_if_large: { type: "boolean", description: "Auto-exportar si hay muchos resultados" }
       },
-    },
+      required: ["auto_export_if_large"]
+    }
   },
   {
-    type: "function",
-    function: {
-      name: "analizar_ventas",
-      description: "Consulta VENTAS reales (Odoo BI).",
-      parameters: {
-        type: "object",
-        properties: { 
-            days_back: { type: "number" },
-            hide_prices: { type: "boolean" }
-        },
-        required: ["days_back"],
+    name: "analizar_ventas",
+    description: "Consulta VENTAS reales (Odoo BI).",
+    input_schema: {
+      type: "object",
+      properties: { 
+        days_back: { type: "number", description: "Días hacia atrás para analizar" },
+        hide_prices: { type: "boolean", description: "Ocultar precios" }
       },
-    },
+      required: ["days_back"]
+    }
   },
   {
-    type: "function",
-    function: {
-      name: "analyze_logistics",
-      description: "BUSCADOR DE STOCK. Úsala SIEMPRE que pregunten 'cuánto hay', 'dónde está' o den una referencia.",
-      parameters: {
-        type: "object",
-        properties: {
-          target: { type: "string", description: "ID Ubicación (CLA-...) o Código Producto (ej: DF-1234)" },
-          type: { type: "string", enum: ["LOCATION", "PRODUCT"] }
-        },
-        required: ["target", "type"]
-      }
+    name: "analyze_logistics",
+    description: "BUSCADOR DE STOCK. Úsala SIEMPRE que pregunten 'cuánto hay', 'dónde está' o den una referencia.",
+    input_schema: {
+      type: "object",
+      properties: {
+        target: { type: "string", description: "ID Ubicación (CLA-...) o Código Producto (ej: DF-1234)" },
+        type: { type: "string", enum: ["LOCATION", "PRODUCT"], description: "Tipo de búsqueda" }
+      },
+      required: ["target", "type"]
     }
   }
 ];
 
 // ==================================================================================
-//  6. ENDPOINT PRINCIPAL DEL AGENTE IA (CEREBRO CFO AUDITOR)
+//  6. ENDPOINT PRINCIPAL DEL AGENTE IA (CEREBRO CFO AUDITOR - CLAUDE OPUS 4.5)
 // ==================================================================================
 app.post("/api/ai/report", async (req, res) => {
   try {
     const { query, history } = req.body;
-    console.log(` 🤖  [AGENTE CFO] Procesando: "${query}"`);
+    console.log(` 🤖  [AGENTE CLAUDE] Procesando: "${query}"`);
     
     // Cargamos datos para herramientas de búsqueda masiva
     const dataPath = path.join(__dirname, "data", "locations.json");
@@ -876,6 +874,7 @@ app.post("/api/ai/report", async (req, res) => {
 
     const SYSTEM_PROMPT = `
     ACTÚA COMO: Auditor Técnico y Director Financiero (CFO) conectado en tiempo real a Odoo.
+    Eres Claude Opus 4.5, el modelo de IA más avanzado de Anthropic.
     
     ### ⛔ DIRECTIVA SUPREMA DE ACCESO:
     - **TIENES ACCESO TOTAL.** Estás conectado a la base de datos de Odoo a través de las herramientas disponibles.
@@ -896,31 +895,34 @@ app.post("/api/ai/report", async (req, res) => {
        ${DATA_DICTIONARY}
     `;
 
-    const messages = [
-      { role: "system", content: SYSTEM_PROMPT },
-      ...(history || []).map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content })),
+    // Convertir historial al formato de Claude
+    const claudeMessages = [
+      ...(history || []).map(m => ({ 
+        role: m.role === 'ai' ? 'assistant' : 'user', 
+        content: m.content 
+      })),
       { role: "user", content: query }
     ];
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: messages,
-      tools: tools,
-      tool_choice: "auto",
+    // Primera llamada a Claude con herramientas
+    let response = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 4096,
+      system: SYSTEM_PROMPT,
+      tools: claudeTools,
+      messages: claudeMessages
     });
 
-    const responseMessage = completion.choices[0].message;
+    let finalMapIds = [];
+    
+    // Procesar tool_use si Claude decide usar herramientas
+    while (response.stop_reason === 'tool_use') {
+      const toolUseBlocks = response.content.filter(block => block.type === 'tool_use');
+      const toolResults = [];
 
-    if (responseMessage.tool_calls) {
-      // Agregamos la intención de la IA al historial
-      messages.push(responseMessage);
-
-      let finalMapIds = [];
-
-      // --- BUCLE PARA TODAS LAS HERRAMIENTAS ---
-      for (const toolCall of responseMessage.tool_calls) {
-        const args = JSON.parse(toolCall.function.arguments);
-        const fnName = toolCall.function.name;
+      for (const toolUse of toolUseBlocks) {
+        const fnName = toolUse.name;
+        const args = toolUse.input;
         let functionResult = "";
 
         console.log(` 🛠️  Ejecutando herramienta: ${fnName}`);
@@ -942,36 +944,44 @@ app.post("/api/ai/report", async (req, res) => {
           try {
             const parsed = JSON.parse(functionResult);
             if (Array.isArray(parsed)) {
-                const ids = parsed.map(p => p.locationId);
-                finalMapIds = [...finalMapIds, ...ids];
+              const ids = parsed.map(p => p.locationId);
+              finalMapIds = [...finalMapIds, ...ids];
             }
           } catch(e) { console.error("Error parseando logística:", e); }
         }
 
-        // Respondemos a CADA tool_call_id específicamente
-        messages.push({
-          role: "tool",
-          tool_call_id: toolCall.id,
-          content: functionResult,
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: toolUse.id,
+          content: functionResult
         });
       }
 
-      const finalResponse = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: messages,
-      });
+      // Continuamos la conversación con los resultados de las herramientas
+      claudeMessages.push({ role: "assistant", content: response.content });
+      claudeMessages.push({ role: "user", content: toolResults });
 
-      // RESPUESTA HÍBRIDA: TEXTO + COMANDO DE MAPA
-      res.json({ 
-          text: finalResponse.choices[0].message.content,
-          map_highlight_ids: [...new Set(finalMapIds)] // Eliminar duplicados
+      response = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 4096,
+        system: SYSTEM_PROMPT,
+        tools: claudeTools,
+        messages: claudeMessages
       });
-
-    } else {
-      res.json({ text: responseMessage.content });
     }
+
+    // Extraer texto de la respuesta final
+    const textContent = response.content.find(block => block.type === 'text');
+    const finalText = textContent ? textContent.text : "No se pudo generar respuesta.";
+
+    res.json({ 
+      text: finalText,
+      map_highlight_ids: [...new Set(finalMapIds)],
+      model: "Claude Opus 4.5"
+    });
+
   } catch (err) {
-    console.error(" ❌  Error Agente:", err.message);
+    console.error(" ❌  Error Agente Claude:", err.message);
     res.json({ text: `###  ⚠️  Error Técnico\n\n${err.message}` });
   }
 });
@@ -1502,4 +1512,4 @@ setInterval(async () => {
   }
 }, POLLING_INTERVAL_MS);
 
-server.listen(PORT, '0.0.0.0', () => console.log(` 🚀  CEREBRO DEFINITIVO + CFO IA ACTIVO en ${PORT}`));
+server.listen(PORT, '0.0.0.0', () => console.log(` 🚀  CEREBRO CLAUDE OPUS 4.5 + CFO IA ACTIVO en ${PORT}`));

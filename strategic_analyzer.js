@@ -1,7 +1,7 @@
-import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 
-// Asegúrate de que esto pille la key del entorno
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Usar Claude en lugar de OpenAI
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // ============================================
 // SISTEMA DE CONTEXTO ESTRATÉGICO
@@ -263,11 +263,11 @@ class StrategicAnalyzer {
   }
 
   // ============================================
-  // GENERACIÓN DE ANÁLISIS CON GPT-4o
+  // GENERACIÓN DE ANÁLISIS CON CLAUDE OPUS 4.5
   // ============================================
   
   async generateStrategicReport(intelligence, conversationHistory = []) {
-    console.log('🧠 [IA] Generando reporte con GPT-4o...');
+    console.log('🧠 [IA] Generando reporte con Claude Opus 4.5...');
     
     // PROMPT MASTER
     const systemPrompt = `Eres un Director de Operaciones experto en logística.
@@ -301,30 +301,35 @@ class StrategicAnalyzer {
     Analiza estos datos. Dame insights que yo no vea a simple vista. Calcula impactos en Euros.`;
 
     try {
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          { role: "system", content: systemPrompt },
-          ...conversationHistory.slice(-4), 
-          { role: "user", content: userMessage }
-        ],
-        temperature: 0.7,
-        max_tokens: 2500
+      // Convertir historial al formato de Claude
+      const claudeMessages = [
+        ...conversationHistory.slice(-4).map(m => ({
+          role: m.role === 'ai' ? 'assistant' : 'user',
+          content: m.content
+        })),
+        { role: "user", content: userMessage }
+      ];
+
+      const response = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 2500,
+        system: systemPrompt,
+        messages: claudeMessages
       });
 
-      const analysis = response.choices[0].message.content;
+      const analysis = response.content[0].text;
       
       // Guardar en memoria simple
       this.analysisMemory.set(Date.now(), { summary: analysis.substring(0, 50) });
       
-      console.log('✅ [IA] Análisis generado correctamente.');
+      console.log('✅ [IA] Análisis generado correctamente con Claude.');
       
       return {
         text: analysis,
         intelligence, // Datos crudos para gráficos
         metadata: {
           generated: new Date().toISOString(),
-          model: 'gpt-4o'
+          model: 'Claude Opus 4.5'
         }
       };
       
