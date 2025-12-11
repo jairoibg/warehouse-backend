@@ -30,8 +30,7 @@ const LOCATIONS_FILE = path.join(__dirname, "data", "locations.json");
 const AUDIT_REPORT_FILE = path.join(__dirname, "data", "audit_report.json");
 
 if (!ANTHROPIC_API_KEY) {
-    console.error(" ❌ ERROR CRÍTICO: No se ha encontrado ANTHROPIC_API_KEY en el archivo .env");
-    process.exit(1);
+    console.warn(" ⚠️ ADVERTENCIA: ANTHROPIC_API_KEY no encontrada. El chat IA no funcionará.");
 }
 
 const EXPORT_DIR = path.join(__dirname, "exports");
