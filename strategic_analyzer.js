@@ -1,7 +1,20 @@
 import Anthropic from '@anthropic-ai/sdk';
 
-// Usar Claude en lugar de OpenAI
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+// ==================================================================================
+//  CLIENTE ANTHROPIC - INICIALIZACIÓN LAZY (SOLUCIÓN AL PROBLEMA)
+// ==================================================================================
+let _anthropicClient = null;
+
+function getAnthropicClient() {
+  if (!_anthropicClient) {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new Error("ANTHROPIC_API_KEY no está configurada");
+    }
+    _anthropicClient = new Anthropic({ apiKey });
+  }
+  return _anthropicClient;
+}
 
 // ============================================
 // SISTEMA DE CONTEXTO ESTRATÉGICO
@@ -310,6 +323,7 @@ class StrategicAnalyzer {
         { role: "user", content: userMessage }
       ];
 
+      const anthropic = getAnthropicClient();
       const response = await anthropic.messages.create({
         model: "claude-sonnet-4-20250514",
         max_tokens: 2500,

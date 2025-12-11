@@ -21,8 +21,6 @@ const __dirname = path.dirname(__filename);
 // ==================================================================================
 //  1. CONFIGURACIÓN DEL SERVIDOR Y SEGURIDAD
 // ==================================================================================
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-console.log("🔑 API Key detectada:", ANTHROPIC_API_KEY ? "SÍ (" + ANTHROPIC_API_KEY.substring(0,20) + "...)" : "NO");
 const PORT = process.env.PORT || 4000;
 const SERVER_HOST = process.env.SERVER_HOST || "localhost";
 
@@ -30,7 +28,10 @@ const SERVER_HOST = process.env.SERVER_HOST || "localhost";
 const LOCATIONS_FILE = path.join(__dirname, "data", "locations.json");
 const AUDIT_REPORT_FILE = path.join(__dirname, "data", "audit_report.json");
 
-if (!ANTHROPIC_API_KEY) {
+// Log de verificación
+console.log("🔑 ANTHROPIC_API_KEY detectada:", process.env.ANTHROPIC_API_KEY ? "SÍ (" + process.env.ANTHROPIC_API_KEY.substring(0,20) + "...)" : "NO");
+
+if (!process.env.ANTHROPIC_API_KEY) {
     console.warn(" ⚠️ ADVERTENCIA: ANTHROPIC_API_KEY no encontrada. El chat IA no funcionará.");
 }
 
@@ -39,8 +40,21 @@ if (!fsSync.existsSync(EXPORT_DIR)) {
   fsSync.mkdirSync(EXPORT_DIR);
 }
 
-// Inicializar cliente de Claude
-const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+// ==================================================================================
+//  CLIENTE ANTHROPIC - INICIALIZACIÓN LAZY (SOLUCIÓN AL PROBLEMA)
+// ==================================================================================
+let _anthropicClient = null;
+
+function getAnthropicClient() {
+  if (!_anthropicClient) {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new Error("ANTHROPIC_API_KEY no está configurada");
+    }
+    _anthropicClient = new Anthropic({ apiKey });
+  }
+  return _anthropicClient;
+}
 
 const app = express();
 app.use(cors());
@@ -526,6 +540,7 @@ app.post("/api/strategic-chat", async (req, res) => {
       { role: "user", content: question }
     ];
 
+    const anthropic = getAnthropicClient();
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 2048,
@@ -905,6 +920,7 @@ app.post("/api/ai/report", async (req, res) => {
     ];
 
     // Primera llamada a Claude con herramientas
+    const anthropic = getAnthropicClient();
     let response = await anthropic.messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 4096,
