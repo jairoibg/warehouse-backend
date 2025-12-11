@@ -19,6 +19,31 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // ==================================================================================
+//  DIAGNÓSTICO DE VARIABLES DE ENTORNO
+// ==================================================================================
+console.log("========== DIAGNÓSTICO DE VARIABLES ==========");
+console.log("PORT:", process.env.PORT);
+console.log("ODOO_URL:", process.env.ODOO_URL ? "✅ Configurada" : "❌ NO encontrada");
+console.log("ODOO_DB:", process.env.ODOO_DB ? "✅ Configurada" : "❌ NO encontrada");
+console.log("ODOO_USERNAME:", process.env.ODOO_USERNAME ? "✅ Configurada" : "❌ NO encontrada");
+console.log("ODOO_PASSWORD:", process.env.ODOO_PASSWORD ? "✅ Configurada" : "❌ NO encontrada");
+console.log("ANTHROPIC_API_KEY:", process.env.ANTHROPIC_API_KEY ? "✅ Configurada (" + process.env.ANTHROPIC_API_KEY.substring(0,15) + "...)" : "❌ NO encontrada");
+
+// Listar TODAS las variables que empiezan con letras relevantes
+console.log("\n--- Todas las variables de entorno disponibles ---");
+Object.keys(process.env).filter(k => 
+  k.startsWith('ANTHROPIC') || 
+  k.startsWith('OPENAI') || 
+  k.startsWith('ODOO') || 
+  k.startsWith('PORT') ||
+  k.startsWith('API')
+).forEach(k => {
+  const val = process.env[k];
+  console.log(`  ${k}: ${val ? (val.length > 20 ? val.substring(0,20) + '...' : val) : 'undefined'}`);
+});
+console.log("================================================\n");
+
+// ==================================================================================
 //  1. CONFIGURACIÓN DEL SERVIDOR Y SEGURIDAD
 // ==================================================================================
 const PORT = process.env.PORT || 4000;
@@ -28,9 +53,7 @@ const SERVER_HOST = process.env.SERVER_HOST || "localhost";
 const LOCATIONS_FILE = path.join(__dirname, "data", "locations.json");
 const AUDIT_REPORT_FILE = path.join(__dirname, "data", "audit_report.json");
 
-// Log de verificación
-console.log("🔑 ANTHROPIC_API_KEY detectada:", process.env.ANTHROPIC_API_KEY ? "SÍ (" + process.env.ANTHROPIC_API_KEY.substring(0,20) + "...)" : "NO");
-
+// NO salir si no hay API key - solo advertir
 if (!process.env.ANTHROPIC_API_KEY) {
     console.warn(" ⚠️ ADVERTENCIA: ANTHROPIC_API_KEY no encontrada. El chat IA no funcionará.");
 }
@@ -41,7 +64,7 @@ if (!fsSync.existsSync(EXPORT_DIR)) {
 }
 
 // ==================================================================================
-//  CLIENTE ANTHROPIC - INICIALIZACIÓN LAZY (SOLUCIÓN AL PROBLEMA)
+//  CLIENTE ANTHROPIC - INICIALIZACIÓN LAZY
 // ==================================================================================
 let _anthropicClient = null;
 
@@ -49,9 +72,10 @@ function getAnthropicClient() {
   if (!_anthropicClient) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
-      throw new Error("ANTHROPIC_API_KEY no está configurada");
+      throw new Error("ANTHROPIC_API_KEY no está configurada. Verifica las variables de entorno en Railway.");
     }
     _anthropicClient = new Anthropic({ apiKey });
+    console.log("✅ Cliente Anthropic inicializado correctamente");
   }
   return _anthropicClient;
 }
@@ -872,7 +896,7 @@ const claudeTools = [
 ];
 
 // ==================================================================================
-//  6. ENDPOINT PRINCIPAL DEL AGENTE IA (CEREBRO CFO AUDITOR - CLAUDE OPUS 4.5)
+//  6. ENDPOINT PRINCIPAL DEL AGENTE IA (CEREBRO CFO AUDITOR - CLAUDE)
 // ==================================================================================
 app.post("/api/ai/report", async (req, res) => {
   try {
@@ -889,7 +913,7 @@ app.post("/api/ai/report", async (req, res) => {
 
     const SYSTEM_PROMPT = `
     ACTÚA COMO: Auditor Técnico y Director Financiero (CFO) conectado en tiempo real a Odoo.
-    Eres Claude Opus 4.5, el modelo de IA más avanzado de Anthropic.
+    Eres Claude, el modelo de IA de Anthropic.
     
     ### ⛔ DIRECTIVA SUPREMA DE ACCESO:
     - **TIENES ACCESO TOTAL.** Estás conectado a la base de datos de Odoo a través de las herramientas disponibles.
@@ -993,7 +1017,7 @@ app.post("/api/ai/report", async (req, res) => {
     res.json({ 
       text: finalText,
       map_highlight_ids: [...new Set(finalMapIds)],
-      model: "Claude Opus 4.5"
+      model: "Claude"
     });
 
   } catch (err) {
@@ -1528,4 +1552,4 @@ setInterval(async () => {
   }
 }, POLLING_INTERVAL_MS);
 
-server.listen(PORT, '0.0.0.0', () => console.log(` 🚀  CEREBRO CLAUDE OPUS 4.5 + CFO IA ACTIVO en ${PORT}`));
+server.listen(PORT, '0.0.0.0', () => console.log(` 🚀  CEREBRO CLAUDE + CFO IA ACTIVO en ${PORT}`));
