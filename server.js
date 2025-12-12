@@ -946,7 +946,7 @@ app.post("/api/ai/report", async (req, res) => {
     // Primera llamada a Claude con herramientas
     const anthropic = getAnthropicClient();
     let response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-3-haiku-20240307",
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
       tools: claudeTools,
