@@ -81,10 +81,16 @@ function findLocationID(fullName) {
 }
 
 /**
- * Determina el tipo de almacén (B2C o B2B) desde el nombre completo de Odoo.
+ * Determina el tipo de almacén (B2C, B2B o PLAYA) desde el nombre completo de Odoo.
  */
 function getWarehouseType(fullName) {
   if (!fullName) return "UNKNOWN";
+  // Playa debe ir primero porque contiene "B2C" o "B2B" en el nombre
+  if (fullName.includes('Playa')) {
+    if (fullName.includes('PlayaB2B')) return "PLAYA_B2B";
+    if (fullName.includes('PlayaB2C')) return "PLAYA_B2C";
+    return "PLAYA";
+  }
   if (fullName.includes('EXTB2B')) return "B2B";
   if (fullName.includes('Storage')) return "B2C";
   return "OTHER";
@@ -435,14 +441,16 @@ export async function syncWithOdoo() {
     // Estadísticas por tipo de almacén
     const b2cCount = locations.filter(l => l.id.includes('Storage')).length;
     const b2bCount = locations.filter(l => l.id.includes('EXTB2B')).length;
-    console.log(` 📊  Ubicaciones en JSON: ${locations.length} (B2C: ${b2cCount}, B2B: ${b2bCount})`);
+    const playaCount = locations.filter(l => l.id.includes('Playa')).length;
+    console.log(` 📊  Ubicaciones en JSON: ${locations.length} (B2C: ${b2cCount}, B2B: ${b2bCount}, Playa: ${playaCount})`);
 
     const stockData = await fetchAllStock(uid);
     
     // Estadísticas del stock descargado
     const stockB2C = stockData.filter(q => q.location_id && q.location_id[1].includes('Storage')).length;
     const stockB2B = stockData.filter(q => q.location_id && q.location_id[1].includes('EXTB2B')).length;
-    console.log(` 📊  Stock Odoo: ${stockData.length} quants (B2C: ${stockB2C}, B2B: ${stockB2B})`);
+    const stockPlaya = stockData.filter(q => q.location_id && q.location_id[1].includes('Playa') && !q.location_id[1].includes('SalvaStock')).length;
+    console.log(` 📊  Stock Odoo: ${stockData.length} quants (B2C: ${stockB2C}, B2B: ${stockB2B}, Playa: ${stockPlaya})`);
 
     const productIds = [...new Set(stockData.map(q => q.product_id[0]))];
     
@@ -541,16 +549,52 @@ export async function syncWithOdoo() {
     // --- ACTUALIZAR UBICACIONES ---
     let matchesB2C = 0;
     let matchesB2B = 0;
+    let matchesPlaya = 0;
+    
+    // --- GENERAR UBICACIONES DE PLAYA DINÁMICAMENTE ---
+    const playaLocations = [
+      { id: "CLABD/Stock/PlayaB2C", brand: "BLACK", market: "B2C", type: "PLAYA" },
+      { id: "CLABD/Stock/PlayaB2B", brand: "BLACK", market: "B2B", type: "PLAYA" },
+      { id: "CLAGD/Stock/PlayaB2C", brand: "GOLD", market: "B2C", type: "PLAYA" },
+      { id: "CLAGD/Stock/PlayaB2B", brand: "GOLD", market: "B2B", type: "PLAYA" },
+      { id: "CLAWD/Stock/PlayaB2C", brand: "WHITE", market: "B2C", type: "PLAYA" },
+      { id: "CLAWD/Stock/PlayaB2B", brand: "WHITE", market: "B2B", type: "PLAYA" },
+    ];
+    
+    // Agregar ubicaciones de Playa si no existen
+    playaLocations.forEach(playa => {
+      if (!locations.find(l => l.id === playa.id)) {
+        locations.push({
+          id: playa.id,
+          brand: playa.brand,
+          market: playa.market,
+          type: playa.type,
+          status: 'FREE',
+          totalStock: 0,
+          packages: []
+        });
+      }
+    });
     
     const updatedLocations = locations.map(loc => {
       const myKey = extractKeyFromLocationId(loc.id);
       const realStock = contentByKey[myKey];
       let brand = "GENERIC";
+      
+      // Filtrar SalvaStock de Playa
+      const isPlaya = loc.id.includes('Playa');
+      const isSalvaStock = loc.id.includes('SalvaStock');
+      
+      if (isSalvaStock) {
+        // Ignorar SalvaStock
+        return null;
+      }
 
       if (realStock && realStock.length > 0) {
           // Contabilizar matches por tipo
           if (loc.id.includes('Storage')) matchesB2C++;
           else if (loc.id.includes('EXTB2B')) matchesB2B++;
+          else if (isPlaya) matchesPlaya++;
 
           const totalStock = realStock.reduce((acc, item) => acc + item.qty, 0);
           const totalReserved = realStock.reduce((acc, item) => acc + item.reservedQty, 0);
@@ -568,6 +612,13 @@ export async function syncWithOdoo() {
               totalOccupancy += item.occupancyVal;
             }
           });
+          
+          // Determinar mercado para Playa
+          let market = null;
+          if (isPlaya) {
+            if (loc.id.includes('B2B')) market = 'B2B';
+            else if (loc.id.includes('B2C')) market = 'B2C';
+          }
 
           return {
             ...loc,
@@ -578,6 +629,8 @@ export async function syncWithOdoo() {
             velocityScore: Math.round(totalVelocity * 100) / 100,
             packages: realStock,
             brand: brand,
+            market: market,
+            type: isPlaya ? 'PLAYA' : (loc.id.includes('EXTB2B') ? 'B2B' : 'B2C'),
             sinDatos: false
           };
       } else {
@@ -586,6 +639,13 @@ export async function syncWithOdoo() {
         if (loc.id.includes("BD")) structuralBrand = "BLACK";
         else if (loc.id.includes("GD")) structuralBrand = "GOLD";
         else if (loc.id.includes("WD") || loc.id.includes("WH")) structuralBrand = "WHITE";
+        
+        // Determinar mercado para Playa
+        let market = null;
+        if (isPlaya) {
+          if (loc.id.includes('B2B')) market = 'B2B';
+          else if (loc.id.includes('B2C')) market = 'B2C';
+        }
 
         return {
           ...loc,
@@ -596,14 +656,17 @@ export async function syncWithOdoo() {
           velocityScore: 0,
           packages: [],
           brand: structuralBrand,
+          market: market,
+          type: isPlaya ? 'PLAYA' : (loc.id.includes('EXTB2B') ? 'B2B' : 'B2C'),
           sinDatos: false
         };
       }
-    });
+    }).filter(loc => loc !== null); // Eliminar SalvaStock
 
-    console.log(` ✅  Sync Completo (B2C + B2B + MACD + Explicabilidad)`);
+    console.log(` ✅  Sync Completo (B2C + B2B + PLAYA + MACD + Explicabilidad)`);
     console.log(`     📦 B2C: ${matchesB2C} ubicaciones con stock`);
     console.log(`     📦 B2B: ${matchesB2B} ubicaciones con stock`);
+    console.log(`     🏖️  Playa: ${matchesPlaya} ubicaciones con stock`);
     
     const tempFile = `${LOCATIONS_FILE}.tmp`;
     await fs.writeFile(tempFile, JSON.stringify(updatedLocations, null, 2));
