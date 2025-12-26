@@ -1,11 +1,11 @@
-﻿import 'dotenv/config';
+import 'dotenv/config';
 import xmlrpc from 'xmlrpc';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { explanationEngine } from './explanation_engine.js';
 
-// --- CONFIGURACIÃ“N ODOO (SEGURA) ---
+// --- CONFIGURACIÓN ODOO (SEGURA) ---
 const ODOO_CONFIG = {
   url: process.env.ODOO_URL,
   db: 'blackdivision',
@@ -18,12 +18,12 @@ const __dirname = path.dirname(__filename);
 const LOCATIONS_FILE = path.join(__dirname, 'data', 'locations.json');
 
 // ==================================================================================
-//  MÃ“DULO DE INGENIERÃA LOGÃSTICA (CÃLCULO VOLUMÃ‰TRICO)
+//  MÓDULO DE INGENIERÍA LOGÍSTICA (CÁLCULO VOLUMÉTRICO)
 // ==================================================================================
 const PALLET = { L: 120, W: 80, H: 180 };
 const BOX_RULES = {
   'GAFAS': { l: 58.3, w: 38.3, h: 34, desc: 'Caja Gafas (DF)', isVolumetric: true },
-  'STANDARD': { l: 0, w: 0, h: 0, desc: 'EstÃ¡ndar', isVolumetric: false }
+  'STANDARD': { l: 0, w: 0, h: 0, desc: 'Estándar', isVolumetric: false }
 };
 
 function optimizeLayer(PL, PW, cl, cw) {
@@ -61,12 +61,12 @@ function getBoxRule(ref) {
 // ==================================================================================
 
 /**
- * Extrae el ID de ubicaciÃ³n normalizado de un nombre completo de Odoo.
+ * Extrae el ID de ubicación normalizado de un nombre completo de Odoo.
  * Soporta tanto B2C (Storage) como B2B (EXTB2B).
  * 
  * Ejemplos:
- *   - B2C: "CLABD/Stock/StorageBD/CLA-004-01-01-01" â†’ "CLA-004-01-01-01"
- *   - B2B: "CLABD/Stock/EXTB2BBD/CLA-001-03-02-03" â†’ "CLA-001-03-02-03"
+ *   - B2C: "CLABD/Stock/StorageBD/CLA-004-01-01-01" → "CLA-004-01-01-01"
+ *   - B2B: "CLABD/Stock/EXTB2BBD/CLA-001-03-02-03" → "CLA-001-03-02-03"
  */
 function findLocationID(fullName) {
   if (!fullName) return "UNKNOWN";
@@ -75,13 +75,13 @@ function findLocationID(fullName) {
   const match = fullName.match(/CLA-\d{3}-\d{2}-\d{2}-\d{2}/);
   if (match) return match[0];
   
-  // Fallback: Ãºltimo segmento
+  // Fallback: último segmento
   const parts = fullName.split('/');
   return parts[parts.length - 1].trim();
 }
 
 /**
- * Determina el tipo de almacÃ©n (B2C, B2B o PLAYA) desde el nombre completo de Odoo.
+ * Determina el tipo de almacén (B2C, B2B o PLAYA) desde el nombre completo de Odoo.
  */
 function getWarehouseType(fullName) {
   if (!fullName) return "UNKNOWN";
@@ -97,9 +97,9 @@ function getWarehouseType(fullName) {
 }
 
 /**
- * Construye la clave Ãºnica para hacer match entre Odoo y locations.json.
- * Incluye el tipo de almacÃ©n para evitar colisiones entre B2C y B2B
- * que podrÃ­an tener el mismo cÃ³digo CLA-XXX-XX-XX-XX.
+ * Construye la clave única para hacer match entre Odoo y locations.json.
+ * Incluye el tipo de almacén para evitar colisiones entre B2C y B2B
+ * que podrían tener el mismo código CLA-XXX-XX-XX-XX.
  */
 function buildLocationKey(fullName) {
   const locId = findLocationID(fullName);
@@ -136,7 +136,7 @@ function calculateDaysOld(dateString) {
   return Math.ceil(Math.abs(today.getTime() - entryDate.getTime()) / (1000 * 60 * 60 * 24));
 }
 
-// --- DetecciÃ³n de Marca ---
+// --- Detección de Marca ---
 function detectBrandFromItem(pkgName, productCode) {
     const searchStr = `${pkgName || ""} ${productCode || ""}`.toUpperCase();
     if (searchStr.startsWith('DF') || searchStr.includes('IBGB') || searchStr.includes('BLACK')) return 'BLACK';
@@ -159,7 +159,7 @@ function odooAuth() {
       ODOO_CONFIG.db, ODOO_CONFIG.username, ODOO_CONFIG.password, {}
     ], (error, uid) => {
       if (error) return reject(error);
-      if (!uid) return reject(new Error("AutenticaciÃ³n fallida. Revisa .env"));
+      if (!uid) return reject(new Error("Autenticación fallida. Revisa .env"));
       resolve(uid);
     });
   });
@@ -231,7 +231,7 @@ function fetchABCData(uid, productIds) {
       { fields: ['product_id', 'level_id'] }
     ], (error, results) => {
       if (error) { 
-        console.error(" âŒ  Error ABC:", error); 
+        console.error(" ❌  Error ABC:", error); 
         resolve([]); 
       } else {
         // REGISTRO DE EXPLICABILIDAD
@@ -249,11 +249,11 @@ function fetchABCData(uid, productIds) {
   });
 }
 
-// --- MOTOR DE AUTO-CLASIFICACIÃ“N DE HUÃ‰RFANOS (MACD) ---
+// --- MOTOR DE AUTO-CLASIFICACIÓN DE HUÉRFANOS (MACD) ---
 async function calculateOrphanABC(uid, orphanIds) {
     if (orphanIds.length === 0) return {};
 
-    console.log(` ðŸš‘  [MACD] Calculando ABC para ${orphanIds.length} productos huÃ©rfanos...`);
+    console.log(` 🚑  [MACD] Calculando ABC para ${orphanIds.length} productos huérfanos...`);
     
     const date = new Date();
     date.setDate(date.getDate() - 30);
@@ -317,16 +317,16 @@ async function calculateOrphanABC(uid, orphanIds) {
           calculatedABC,
           {
             algorithm: 'Pareto 80/15/5',
-            dataSource: 'sale.order.line Ãºltimos 30 dÃ­as',
+            dataSource: 'sale.order.line últimos 30 días',
             confidence: 'MEDIUM'
           }
         );
 
-        console.log(" âœ…  [MACD] ClasificaciÃ³n completada.");
+        console.log(" ✅  [MACD] Clasificación completada.");
         return calculatedABC;
 
     } catch (e) {
-        console.error("Error en Auto-ClasificaciÃ³n:", e);
+        console.error("Error en Auto-Clasificación:", e);
         return {};
     }
 }
@@ -337,7 +337,7 @@ export async function getRealTimeSales(daysBack) {
     const uid = await odooAuth();
     const date = new Date(); date.setDate(date.getDate() - daysBack);
     const dateStr = date.toISOString().split('T')[0];
-    console.log(` ðŸ“‰  [ODOO LIVE] Descargando ventas desde ${dateStr}...`);
+    console.log(` 📉  [ODOO LIVE] Descargando ventas desde ${dateStr}...`);
     const startTime = Date.now();
     const models = xmlrpc.createSecureClient({ url: `${ODOO_CONFIG.url}/xmlrpc/2/object` });
     const domain = [['order_id.date_order', '>=', dateStr], ['state', 'in', ['sale', 'done']]];
@@ -367,7 +367,7 @@ export async function getRealTimeSales(daysBack) {
   } catch (e) { return []; }
 }
 
-// Velocidad Interna (90 dÃ­as)
+// Velocidad Interna (90 días)
 function fetchSalesVelocity(uid, productIds) {
   return new Promise((resolve, reject) => {
     if (productIds.length === 0) return resolve({});
@@ -412,20 +412,20 @@ async function fetchAllStock(uid) {
   let offset = 0;
   const BATCH_SIZE = 5000;
   let keepFetching = true;
-  console.log(" â³  Iniciando descarga de stock (B2C + B2B)...");
+  console.log(" ⏳  Iniciando descarga de stock (B2C + B2B)...");
   while (keepFetching) {
     try {
       const batch = await fetchBatchStock(uid, offset, BATCH_SIZE);
       allQuants = allQuants.concat(batch);
       offset += BATCH_SIZE;
-      process.stdout.write(`\r   ... ${allQuants.length} lÃ­neas bajadas`);
+      process.stdout.write(`\r   ... ${allQuants.length} líneas bajadas`);
       if (batch.length < BATCH_SIZE) keepFetching = false;
     } catch (err) {
-      console.error("\n âŒ  Error en lote:", err);
+      console.error("\n ❌  Error en lote:", err);
       keepFetching = false;
     }
   }
-  console.log("\n ðŸ“¦  Stock descargado.");
+  console.log("\n 📦  Stock descargado.");
   return allQuants;
 }
 
@@ -438,23 +438,23 @@ export async function syncWithOdoo() {
     let locations = JSON.parse(rawData);
     const uid = await odooAuth();
 
-    // EstadÃ­sticas por tipo de almacÃ©n
+    // Estadísticas por tipo de almacén
     const b2cCount = locations.filter(l => l.id.includes('Storage')).length;
     const b2bCount = locations.filter(l => l.id.includes('EXTB2B')).length;
     const playaCount = locations.filter(l => l.id.includes('Playa')).length;
-    console.log(` ðŸ“Š  Ubicaciones en JSON: ${locations.length} (B2C: ${b2cCount}, B2B: ${b2bCount}, Playa: ${playaCount})`);
+    console.log(` 📊  Ubicaciones en JSON: ${locations.length} (B2C: ${b2cCount}, B2B: ${b2bCount}, Playa: ${playaCount})`);
 
     const stockData = await fetchAllStock(uid);
     
-    // EstadÃ­sticas del stock descargado
+    // Estadísticas del stock descargado
     const stockB2C = stockData.filter(q => q.location_id && q.location_id[1].includes('Storage')).length;
     const stockB2B = stockData.filter(q => q.location_id && q.location_id[1].includes('EXTB2B')).length;
     const stockPlaya = stockData.filter(q => q.location_id && q.location_id[1].includes('Playa') && !q.location_id[1].includes('SalvaStock')).length;
-    console.log(` ðŸ“Š  Stock Odoo: ${stockData.length} quants (B2C: ${stockB2C}, B2B: ${stockB2B}, Playa: ${stockPlaya})`);
+    console.log(` 📊  Stock Odoo: ${stockData.length} quants (B2C: ${stockB2C}, B2B: ${stockB2B}, Playa: ${stockPlaya})`);
 
     const productIds = [...new Set(stockData.map(q => q.product_id[0]))];
     
-    console.log(` ðŸ§¬  Cruzando datos para ${productIds.length} productos...`);
+    console.log(` 🧬  Cruzando datos para ${productIds.length} productos...`);
     
     const [productsInfo, abcData, velocityMap] = await Promise.all([
         fetchProductDetails(uid, productIds),
@@ -462,7 +462,7 @@ export async function syncWithOdoo() {
         fetchSalesVelocity(uid, productIds)
     ]);
 
-    // --- LÃ“GICA HÃBRIDA DE CLASIFICACIÃ“N ABC ---
+    // --- LÓGICA HÍBRIDA DE CLASIFICACIÓN ABC ---
     const abcMap = {};
     const foundIds = new Set();
     
@@ -511,7 +511,7 @@ export async function syncWithOdoo() {
       };
     });
 
-    // --- AGRUPAR STOCK POR CLAVE ÃšNICA (tipo:marca:locId) ---
+    // --- AGRUPAR STOCK POR CLAVE ÚNICA (tipo:marca:locId) ---
     const contentByKey = {};
     stockData.forEach(quant => {
       if (!quant.location_id) return;
@@ -551,7 +551,7 @@ export async function syncWithOdoo() {
     let matchesB2B = 0;
     let matchesPlaya = 0;
     
-    // --- GENERAR UBICACIONES DE PLAYA DINÃMICAMENTE ---
+    // --- GENERAR UBICACIONES DE PLAYA DINÁMICAMENTE ---
     const playaLocations = [
       { id: "CLABD/Stock/PlayaB2C", brand: "BLACK", market: "B2C", type: "PLAYA" },
       { id: "CLABD/Stock/PlayaB2B", brand: "BLACK", market: "B2B", type: "PLAYA" },
@@ -663,10 +663,10 @@ export async function syncWithOdoo() {
       }
     }).filter(loc => loc !== null); // Eliminar SalvaStock
 
-    console.log(` âœ…  Sync Completo (B2C + B2B + PLAYA + MACD + Explicabilidad)`);
-    console.log(`     ðŸ“¦ B2C: ${matchesB2C} ubicaciones con stock`);
-    console.log(`     ðŸ“¦ B2B: ${matchesB2B} ubicaciones con stock`);
-    console.log(`     ðŸ–ï¸  Playa: ${matchesPlaya} ubicaciones con stock`);
+    console.log(` ✅  Sync Completo (B2C + B2B + PLAYA + MACD + Explicabilidad)`);
+    console.log(`     📦 B2C: ${matchesB2C} ubicaciones con stock`);
+    console.log(`     📦 B2B: ${matchesB2B} ubicaciones con stock`);
+    console.log(`     🏖️  Playa: ${matchesPlaya} ubicaciones con stock`);
     
     const tempFile = `${LOCATIONS_FILE}.tmp`;
     await fs.writeFile(tempFile, JSON.stringify(updatedLocations, null, 2));
@@ -674,7 +674,7 @@ export async function syncWithOdoo() {
     return updatedLocations;
 
   } catch (error) {
-    console.error(" âŒ  Error en syncWithOdoo:", error.message);
+    console.error(" ❌  Error en syncWithOdoo:", error.message);
     return null;
   }
 }
