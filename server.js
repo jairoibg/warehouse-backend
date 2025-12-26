@@ -1894,8 +1894,31 @@ async function refreshPackingCache() {
   }
 }
 
+// ==================================================================================
+//  MAPA DE NORMALIZACIÓN DE COLORES (PDF → Odoo)
+// ==================================================================================
+const COLOR_NORMALIZATION = {
+  'BLACK': 'BLAC', 'WHITE': 'WHIT', 'BURGUNDY': 'BURG', 'BEIGE': 'BEIG',
+  'BROWN': 'BROW', 'GREEN': 'GREE', 'BLUE': 'BLUE', 'GREY': 'GREY',
+  'GRAY': 'GREY', 'PINK': 'PINK', 'GOLD': 'GOLD', 'SILVER': 'SILV',
+  'PEWTER': 'PEWT', 'PEWT': 'PEWT', 'ORANGE': 'ORAN', 'YELLOW': 'YELL',
+  'PURPLE': 'PURP', 'NAVY': 'NAVY', 'CREAM': 'CREA', 'TAUPE': 'TAUP',
+  'OLIVE': 'OLIV', 'CORAL': 'CORA', 'LEOPARD': 'LEOP', 'MULTI': 'MULT',
+  'TRANSPARENT': 'TRAN', 'TORTOISE': 'TORT', 'TAN': 'TAN', 'COW': 'COW',
+  'OFFWHITE': 'OFFW', 'OFFW': 'OFFW', 'FBLA': 'FBLA', 'FBLACK': 'FBLA'
+};
+
+function normalizeColor(color) {
+  if (!color) return '';
+  const upper = color.toUpperCase().trim();
+  return COLOR_NORMALIZATION[upper] || upper.substring(0, 4);
+}
+
+// ==================================================================================
+//  PARSER PDF CON CLAUDE OPUS 4.5
+// ==================================================================================
 async function parsePackingPDFWithAI(filePath) {
-  console.log('🧠 [PACKING-AI] Iniciando análisis inteligente del PDF con Claude Sonnet...');
+  console.log('🧠 [PACKING-AI v3.0] Iniciando análisis con Claude Opus 4.5...');
   const tempScriptPath = path.join(__dirname, 'temp_extractor.py');
   const absolutePath = path.resolve(filePath);
   
@@ -1906,10 +1929,11 @@ import sys
 import re
 
 pdf_path = sys.argv[1] if len(sys.argv) > 1 else ""
-result = {"raw_text": "", "tables": [], "container_candidates": []}
+result = {"raw_text": "", "tables": [], "container_candidates": [], "page_count": 0}
 
 try:
     with pdfplumber.open(pdf_path) as pdf:
+        result["page_count"] = len(pdf.pages)
         all_text = []
         for page in pdf.pages:
             text = page.extract_text() or ""
@@ -1931,77 +1955,82 @@ except Exception as e:
   try {
     await fs.writeFile(tempScriptPath, pythonScript, 'utf8');
     const pythonExe = process.platform === 'win32' ? 'python' : 'python3';
-    const { stdout } = await execPromise(`"${pythonExe}" "${tempScriptPath}" "${absolutePath}"`, { maxBuffer: 50 * 1024 * 1024 });
+    const { stdout } = await execPromise(`"${pythonExe}" "${tempScriptPath}" "${absolutePath}"`, { maxBuffer: 100 * 1024 * 1024 });
     await fs.unlink(tempScriptPath).catch(() => {});
     
     if (!stdout || stdout.trim() === '') throw new Error('No se pudo extraer contenido del PDF');
     const extracted = JSON.parse(stdout);
     if (extracted.error) throw new Error(extracted.error);
 
-    console.log(`  📄 Extraído: ${extracted.tables.length} tablas, ${extracted.raw_text.length} caracteres`);
-    console.log(`  🤖 Enviando a Claude Sonnet 4 para análisis profundo...`);
+    console.log(`  📄 Extraído: ${extracted.tables.length} tablas, ${extracted.page_count} páginas`);
+    console.log(`  🤖 Enviando a Claude Opus 4.5 para análisis profundo...`);
 
-    // Preparar contenido - enviar más datos a Sonnet
-    let contentForAI = "";
+    let contentForAI = `DOCUMENTO DE ${extracted.page_count} PÁGINAS\n`;
+    contentForAI += `CONTENEDORES DETECTADOS: ${extracted.container_candidates.join(', ') || 'Ninguno'}\n\n`;
+    
     extracted.tables.forEach((table, idx) => {
       const tableStr = table.map(row => row.join(' | ')).join('\n');
-      contentForAI += `\n--- TABLA ${idx + 1} ---\n${tableStr}\n`;
+      contentForAI += `\n=== TABLA ${idx + 1} ===\n${tableStr}\n`;
     });
     
-    // Si hay poco contenido de tablas, añadir texto raw
-    if (contentForAI.length < 1000) {
-      contentForAI += `\n--- TEXTO COMPLETO ---\n${extracted.raw_text}`;
+    if (extracted.tables.length === 0 || contentForAI.length < 2000) {
+      contentForAI += `\n=== TEXTO COMPLETO ===\n${extracted.raw_text}`;
     }
     
-    // Limitar pero dar más contexto que antes
-    if (contentForAI.length > 50000) contentForAI = contentForAI.substring(0, 50000);
+    if (contentForAI.length > 100000) contentForAI = contentForAI.substring(0, 100000);
 
     const anthropic = getAnthropicClient();
     const aiResponse = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 8192,
-      system: `Eres un experto en logística de almacén analizando packing lists de contenedores marítimos.
+      model: "claude-opus-4-20250514",
+      max_tokens: 16384,
+      system: `Eres un experto en logística de almacén especializado en analizar packing lists de contenedores marítimos para empresas de moda (calzado y gafas).
 
-TU MISIÓN: Extraer TODOS los productos del documento con máxima precisión.
+## TU MISIÓN
+Extraer con MÁXIMA PRECISIÓN todos los productos del documento, agrupando correctamente por referencia+color.
 
-REGLAS DE EXTRACCIÓN:
-1. **REFERENCIA COMPLETA**: Siempre incluir el COLOR como sufijo separado por guión.
-   - Ejemplo: "COSH244008" + "BLACK" = "COSH244008-BLACK"
-   - Ejemplo: "DFSH321085" + "BLAC" = "DFSH321085-BLAC"
-   
-2. **AGRUPAR por referencia+color**: Si hay múltiples líneas del mismo producto, SUMAR las cantidades.
+## ESTRUCTURA DE LOS PACKING LISTS
+Los documentos pueden tener diferentes formatos, pero típicamente contienen:
+- **Art. NO. / Item No**: Código del producto (ej: COSH244008, DFSH321085, DFKSUN0216)
+- **COLOUR / Color**: Color del producto (ej: BLACK, BURGUNDY, PEWTER)
+- **SIZE columns (25-46)**: Distribución por tallas
+- **PRS/CTN o PER CTN**: Pares por caja
+- **CTNS o TTL CTNS**: Número de cajas de esa línea
+- **PRS o TTL PRS o QTY**: Total de unidades de esa línea
 
-3. **CAMPOS A EXTRAER por cada item**:
-   - reference: Código + Color (ej: "COSH244008-BLACK")
-   - quantity: Total de unidades (columna PRS, QTY, PCS, o similar)
-   - cartons: Total de cajas (columna CTNS, CTN, CARTONS)
-   - sizeRange: Rango de tallas si existe (ej: "25-36", "36-41")
-   - minSize: Talla mínima numérica (para detectar infantil vs adulto)
+## REGLAS CRÍTICAS
 
-4. **TIPOS DE PRODUCTO** (detectar por prefijo):
-   - DFKSUN*, DFSU* = Gafas de sol (sin tallas)
-   - DFSH*, BWSH*, BJSH*, COSH*, TESH* = Calzado (con tallas)
-   - DFTXSOCO*, SOC* = Calcetines
+### 1. NORMALIZACIÓN DE COLORES (MUY IMPORTANTE)
+Usar SIEMPRE estas abreviaturas de 4 letras:
+BLACK → BLAC | WHITE → WHIT | BURGUNDY → BURG | BEIGE → BEIG
+BROWN → BROW | PEWTER → PEWT | GOLD → GOLD | SILVER → SILV
+LEOPARD → LEOP | OFFWHITE → OFFW | PINK → PINK | GREY → GREY
 
-5. **CONTAINER**: Buscar código tipo XXXX1234567 (4 letras + 7 números)
+### 2. REFERENCIA COMPLETA
+Siempre: código + guión + color normalizado
+COSH244008 + BLACK = "COSH244008-BLAC"
+COSH244011 + BURGUNDY = "COSH244011-BURG"
 
-RESPONDE ÚNICAMENTE con JSON válido:
+### 3. AGRUPACIÓN Y SUMA
+Cada referencia+color puede aparecer en MÚLTIPLES LÍNEAS. SUMA todas las cantidades.
+
+### 4. DETECCIÓN DE TIPO
+- DFKSUN*, DFSU*: Gafas (50 uds/caja, 22 cajas/palet)
+- DFTXSOCO*: Calcetines (50 uds/caja, 50 cajas/palet)
+- DFSH*, BWSH*, BJSH*, COSH*, TESH*: Calzado
+  - Tallas 25-35: Infantil (28 cajas/palet)
+  - Tallas 36-46: Adulto (14 cajas/palet)
+
+## RESPUESTA JSON
 {
   "container_number": "MRKU0461515",
   "items": [
-    {
-      "reference": "COSH244008-BLACK",
-      "quantity": 960,
-      "cartons": 139,
-      "sizeRange": "25-36",
-      "minSize": 25
-    }
+    {"reference": "COSH244008-BLAC", "quantity": 1282, "cartons": 139, "sizeRange": "25-36", "minSize": 25, "productType": "FOOTWEAR_KIDS"}
   ],
   "total_units": 5244,
   "total_cartons": 498,
   "confidence": "HIGH"
 }`,
-      messages: [{ role: "user", content: `Analiza este packing list y extrae TODOS los productos:\n\n${contentForAI}` }]
+      messages: [{ role: "user", content: `Analiza este packing list:\n\n${contentForAI}` }]
     });
 
     const aiText = aiResponse.content[0].text;
@@ -2010,17 +2039,28 @@ RESPONDE ÚNICAMENTE con JSON válido:
       const jsonMatch = aiText.match(/\{[\s\S]*\}/);
       parsedAI = jsonMatch ? JSON.parse(jsonMatch[0]) : { items: [], confidence: "LOW" };
     } catch (e) {
-      console.error('  ⚠️ Error parseando JSON de IA:', e.message);
+      console.error('  ⚠️ Error parseando JSON:', e.message);
       parsedAI = { items: [], confidence: "LOW" };
     }
     
-    // Fallback para container
     if (!parsedAI.container_number && extracted.container_candidates.length > 0) {
       parsedAI.container_number = extracted.container_candidates[0];
     }
+
+    // Normalizar colores por si Opus no lo hizo
+    if (parsedAI.items) {
+      parsedAI.items = parsedAI.items.map(item => {
+        let ref = item.reference || '';
+        if (ref.includes('-')) {
+          const parts = ref.split('-');
+          ref = `${parts[0]}-${normalizeColor(parts.slice(1).join('-'))}`;
+        }
+        return { ...item, reference: ref.toUpperCase() };
+      });
+    }
     
-    console.log(`  ✅ ${parsedAI.items?.length || 0} referencias encontradas (Confidence: ${parsedAI.confidence})`);
-    console.log(`  📦 Total unidades: ${parsedAI.total_units || 'N/A'}, Cajas: ${parsedAI.total_cartons || 'N/A'}`);
+    console.log(`  ✅ ${parsedAI.items?.length || 0} referencias (Confidence: ${parsedAI.confidence})`);
+    console.log(`  📦 Total: ${parsedAI.total_units || 'N/A'} uds, ${parsedAI.total_cartons || 'N/A'} cajas`);
     
     return parsedAI;
   } catch (error) {
@@ -2029,141 +2069,121 @@ RESPONDE ÚNICAMENTE con JSON válido:
   }
 }
 
+// ==================================================================================
+//  ENRIQUECIMIENTO CON ODOO
+// ==================================================================================
 function enrichPackingListAI(parsedData) {
   const enriched = [];
   const summary = { 
-    totalUnits: 0, 
-    totalBoxes: 0,
-    totalPallets: 0,
+    totalUnits: 0, totalBoxes: 0, totalPallets: 0,
     byABC: { A: 0, B: 0, C: 0, D: 0, NEW: 0 }, 
     byType: { SUNGLASSES: 0, SOCKS: 0, FOOTWEAR_ADULT: 0, FOOTWEAR_KIDS: 0, UNKNOWN: 0 },
-    newReferences: [], 
-    consolidationAlerts: [] 
+    newReferences: [], consolidationAlerts: [] 
   };
 
-  if (!parsedData.items) return { items: enriched, summary };
+  if (!parsedData.items || parsedData.items.length === 0) return { items: enriched, summary };
 
-  // Función para detectar reglas de empaque
-  function getPackingRules(reference, sizeRange, prsPerCtn) {
+  function getPackingRules(reference, minSize, productType) {
     const ref = (reference || '').toUpperCase();
     
-    // GAFAS DE SOL - Regla fija 50 uds/caja, 22 cajas/palet
-    if (ref.startsWith('DFKSUN') || ref.startsWith('DFSU')) {
+    if (productType === 'SUNGLASSES' || ref.startsWith('DFKSUN') || ref.startsWith('DFSU')) {
       return { udsPerBox: 50, boxesPerPallet: 22, type: 'SUNGLASSES' };
     }
-    
-    // CALCETINES - Regla fija 50 uds/caja, 50 cajas/palet
-    if (ref.includes('DFTXSOCO') || ref.includes('SOC')) {
+    if (productType === 'SOCKS' || ref.includes('DFTXSOCO') || ref.includes('SOC')) {
       return { udsPerBox: 50, boxesPerPallet: 50, type: 'SOCKS' };
     }
     
-    // CALZADO - Detectar por tallas
-    let minSize = 36; // Por defecto adulto
-    if (sizeRange) {
-      const match = sizeRange.match(/(\d+)/);
-      if (match) minSize = parseInt(match[1]);
+    const size = minSize || 36;
+    if (size < 36) {
+      return { udsPerBox: null, boxesPerPallet: 28, type: 'FOOTWEAR_KIDS' };
     }
-    
-    if (minSize < 36) {
-      // INFANTIL (tallas 25-35) - 28 cajas/palet
-      return { udsPerBox: prsPerCtn || null, boxesPerPallet: 28, type: 'FOOTWEAR_KIDS' };
-    } else {
-      // ADULTO (tallas 36+) - 14 cajas/palet
-      return { udsPerBox: prsPerCtn || null, boxesPerPallet: 14, type: 'FOOTWEAR_ADULT' };
-    }
+    return { udsPerBox: null, boxesPerPallet: 14, type: 'FOOTWEAR_ADULT' };
   }
 
-  // Agrupar por referencia
-  const byReference = new Map();
-  parsedData.items.forEach(item => {
-    const ref = (item.reference || '').toUpperCase().trim();
-    if (!ref) return;
+  function findProductInOdoo(reference) {
+    // Intento 1: Exacto
+    let product = packingProductCache.get(reference);
+    if (product) return product;
     
-    if (!byReference.has(ref)) {
-      byReference.set(ref, { 
-        reference: ref, 
-        totalUnits: 0, 
-        totalBoxes: 0,
-        sizeRange: item.sizeRange || null,
-        prsPerCtn: item.prsPerCtn || item.unitsPerCarton || null
-      });
-    }
-    const entry = byReference.get(ref);
-    entry.totalUnits += item.quantity || 0;
-    entry.totalBoxes += item.cartons || 0;
-    if (item.sizeRange) entry.sizeRange = item.sizeRange;
-    if (item.prsPerCtn) entry.prsPerCtn = item.prsPerCtn;
-  });
-
-  byReference.forEach((refData, reference) => {
-    // Obtener reglas de empaque
-    const rules = getPackingRules(reference, refData.sizeRange, refData.prsPerCtn);
+    // Intento 2: Sin guiones
+    product = packingProductCache.get(reference.replace(/-/g, ''));
+    if (product) return product;
     
-    // Calcular cajas
-    let calculatedBoxes = refData.totalBoxes;
-    if (!calculatedBoxes && rules.udsPerBox) {
-      calculatedBoxes = Math.ceil(refData.totalUnits / rules.udsPerBox);
-    }
+    // Intento 3: Código base
+    const baseCode = reference.split('-')[0];
+    product = packingProductCache.get(baseCode);
+    if (product) return product;
     
-    // Calcular palets
-    let calculatedPallets = 0;
-    if (calculatedBoxes && rules.boxesPerPallet) {
-      calculatedPallets = calculatedBoxes / rules.boxesPerPallet;
-    }
-
-    // Buscar producto en Odoo
-    let productInfo = packingProductCache.get(reference);
-    if (!productInfo) {
-      const variants = [reference.replace(/-/g, ''), reference.split('-')[0]];
-      for (const v of variants) {
-        productInfo = packingProductCache.get(v.toUpperCase());
-        if (productInfo) break;
+    // Intento 4: Búsqueda parcial
+    for (const [key, value] of packingProductCache.entries()) {
+      if (key.includes(baseCode) || key.includes(reference.replace(/-/g, ''))) {
+        return value;
       }
     }
+    
+    return null;
+  }
 
+  parsedData.items.forEach(item => {
+    const reference = (item.reference || '').toUpperCase().trim();
+    if (!reference) return;
+
+    const rules = getPackingRules(reference, item.minSize, item.productType);
+    
+    let totalBoxes = item.cartons || 0;
+    if (!totalBoxes && rules.udsPerBox && item.quantity) {
+      totalBoxes = Math.ceil(item.quantity / rules.udsPerBox);
+    }
+    
+    let totalPallets = totalBoxes && rules.boxesPerPallet ? totalBoxes / rules.boxesPerPallet : 0;
+
+    const productInfo = findProductInOdoo(reference);
+    
     let abcClass = 'NEW', currentStock = 0, stockLocations = [], alerts = [];
     
     if (productInfo) {
       abcClass = packingAbcCache.get(productInfo.id) || 'D';
       const stock = packingStockCache.get(productInfo.id);
-      if (stock) { currentStock = stock.total; stockLocations = stock.locations; }
+      if (stock) { 
+        currentStock = stock.total; 
+        stockLocations = stock.locations.map(loc => ({ name: loc.name, qty: loc.qty }));
+      }
       if (currentStock > 0) {
-        alerts.push({ type: 'consolidar', message: `Ya tiene ${currentStock} uds en stock` });
-        summary.consolidationAlerts.push({ itemNo: reference, currentStock, incomingUnits: refData.totalUnits });
+        alerts.push({ type: 'consolidar', message: `⚠️ Stock actual: ${currentStock} uds en ${stockLocations.length} ubicaciones` });
+        summary.consolidationAlerts.push({ itemNo: reference, currentStock, incomingUnits: item.quantity, locations: stockLocations.slice(0, 5) });
       }
     } else {
       alerts.push({ type: 'nuevo', message: '🆕 Nueva referencia' });
       summary.newReferences.push(reference);
     }
 
-    // Actualizar contadores del summary
-    summary.byABC[abcClass] = (summary.byABC[abcClass] || 0) + refData.totalUnits;
-    summary.byType[rules.type] = (summary.byType[rules.type] || 0) + refData.totalUnits;
-    summary.totalUnits += refData.totalUnits;
-    summary.totalBoxes += calculatedBoxes || 0;
-    summary.totalPallets += calculatedPallets || 0;
+    const qty = item.quantity || 0;
+    summary.byABC[abcClass] = (summary.byABC[abcClass] || 0) + qty;
+    summary.byType[rules.type] = (summary.byType[rules.type] || 0) + qty;
+    summary.totalUnits += qty;
+    summary.totalBoxes += totalBoxes;
+    summary.totalPallets += totalPallets;
 
     enriched.push({
       itemNo: reference,
-      productName: productInfo?.name || 'Desconocido',
-      totalUnits: refData.totalUnits,
-      totalBoxes: calculatedBoxes || 0,
-      totalPallets: Math.round(calculatedPallets * 100) / 100,
+      productName: productInfo?.name || 'No encontrado en Odoo',
+      totalUnits: qty,
+      totalBoxes,
+      totalPallets: Math.round(totalPallets * 100) / 100,
       productType: rules.type,
-      udsPerBox: rules.udsPerBox || 'Variable',
       boxesPerPallet: rules.boxesPerPallet,
-      abcClass, 
-      currentStock,
-      stockLocations: stockLocations.slice(0, 3),
+      sizeRange: item.sizeRange || null,
+      abcClass, currentStock,
+      stockLocations: stockLocations.slice(0, 5),
       alerts
     });
   });
 
-  // Redondear totales
   summary.totalPallets = Math.round(summary.totalPallets * 100) / 100;
 
-  // Ordenar por ABC
   enriched.sort((a, b) => {
+    if (a.currentStock > 0 && b.currentStock === 0) return -1;
+    if (b.currentStock > 0 && a.currentStock === 0) return 1;
     const order = { A: 1, B: 2, C: 3, D: 4, NEW: 5 };
     return (order[a.abcClass] || 99) - (order[b.abcClass] || 99);
   });
@@ -2171,10 +2191,12 @@ function enrichPackingListAI(parsedData) {
   return { items: enriched, summary };
 }
 
-// ENDPOINTS PACKING
+// ==================================================================================
+//  ENDPOINTS PACKING
+// ==================================================================================
 app.get("/api/packing/health", (req, res) => {
   res.json({
-    status: 'ok', version: '2.1-AI',
+    status: 'ok', version: '3.0-OPUS',
     cache: { products: packingProductCache.size, abc: packingAbcCache.size, stock: packingStockCache.size, lastUpdate: packingLastCacheUpdate }
   });
 });
@@ -2191,7 +2213,7 @@ app.post("/api/packing/cache/refresh", async (req, res) => {
 app.post("/api/packing/analyze", packingUpload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
-    console.log(`\n📄 [PACKING] Analizando: ${req.file.originalname}`);
+    console.log(`\n📄 [PACKING v3.0] Analizando: ${req.file.originalname}`);
 
     if (!packingLastCacheUpdate || (Date.now() - packingLastCacheUpdate.getTime()) > 3600000) {
       try { await refreshPackingCache(); } catch (e) { console.warn('⚠️ Cache no actualizada'); }
@@ -2204,7 +2226,7 @@ app.post("/api/packing/analyze", packingUpload.single('file'), async (req, res) 
     await fs.unlink(req.file.path).catch(() => {});
     console.log(`✅ [PACKING] Completado: ${enriched.items.length} referencias\n`);
 
-    res.json({ success: true, containerNumber, summary: enriched.summary, items: enriched.items, aiPowered: true });
+    res.json({ success: true, containerNumber, summary: enriched.summary, items: enriched.items, aiPowered: true, model: 'opus-4.5' });
   } catch (error) {
     console.error('❌ [PACKING] Error:', error);
     if (req.file) await fs.unlink(req.file.path).catch(() => {});
@@ -2219,4 +2241,4 @@ app.get("/api/packing/download/:filename", (req, res) => {
 // ==================================================================================
 //  SERVIDOR - INICIO
 // ==================================================================================
-server.listen(PORT, '0.0.0.0', () => console.log(` 🚀  CEREBRO CLAUDE + CFO IA + DEVOLUCIONES B2B + PACKING ACTIVO en ${PORT}`));
+server.listen(PORT, '0.0.0.0', () => console.log(` 🚀  CEREBRO CLAUDE + CFO IA + DEVOLUCIONES B2B + PACKING v3.0 OPUS en ${PORT}`));
