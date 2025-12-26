@@ -1790,9 +1790,11 @@ app.delete("/api/devoluciones/:id", async (req, res) => {
   }
 });
 
+/// ==================================================================================
+//  ⭐ MÓDULO PACKING LIST ANALYZER v3.3 CON CACHÉ INTELIGENTE
 // ==================================================================================
-//  ⭐ MÓDULO PACKING LIST ANALYZER
-// ==================================================================================
+import crypto from 'crypto';
+
 const packingStorage = multer.diskStorage({
   destination: './uploads/',
   filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
@@ -1807,6 +1809,63 @@ let packingAbcCache = new Map();
 let packingStockCache = new Map();
 let packingLastCacheUpdate = null;
 
+// ==================================================================================
+//  SISTEMA DE CACHÉ INTELIGENTE
+// ==================================================================================
+let packingAnalysisCache = new Map();
+let packingReferencesCache = new Map();
+const CACHE_FILE_ANALYSIS = path.join(__dirname, 'data', 'packing_analysis_cache.json');
+const CACHE_FILE_REFERENCES = path.join(__dirname, 'data', 'packing_references_cache.json');
+
+async function loadPackingCaches() {
+  try {
+    if (fsSync.existsSync(CACHE_FILE_ANALYSIS)) {
+      const data = JSON.parse(await fs.readFile(CACHE_FILE_ANALYSIS, 'utf8'));
+      packingAnalysisCache = new Map(Object.entries(data));
+      console.log(`📦 [CACHE] Cargados ${packingAnalysisCache.size} análisis previos`);
+    }
+    if (fsSync.existsSync(CACHE_FILE_REFERENCES)) {
+      const data = JSON.parse(await fs.readFile(CACHE_FILE_REFERENCES, 'utf8'));
+      packingReferencesCache = new Map(Object.entries(data));
+      console.log(`📦 [CACHE] Cargadas ${packingReferencesCache.size} referencias conocidas`);
+    }
+  } catch (err) {
+    console.warn('⚠️ [CACHE] Error cargando cachés:', err.message);
+  }
+}
+
+async function savePackingCaches() {
+  try {
+    await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
+    const analysisEntries = [...packingAnalysisCache.entries()].slice(-100);
+    await fs.writeFile(CACHE_FILE_ANALYSIS, JSON.stringify(Object.fromEntries(analysisEntries), null, 2));
+    const refEntries = [...packingReferencesCache.entries()].slice(-1000);
+    await fs.writeFile(CACHE_FILE_REFERENCES, JSON.stringify(Object.fromEntries(refEntries), null, 2));
+    console.log(`💾 [CACHE] Guardados ${analysisEntries.length} análisis y ${refEntries.length} referencias`);
+  } catch (err) {
+    console.warn('⚠️ [CACHE] Error guardando:', err.message);
+  }
+}
+
+async function calculatePDFHash(filePath) {
+  const fileBuffer = await fs.readFile(filePath);
+  return crypto.createHash('md5').update(fileBuffer).digest('hex');
+}
+
+function learnReference(reference, data) {
+  const existing = packingReferencesCache.get(reference) || {};
+  packingReferencesCache.set(reference, {
+    ...existing, ...data,
+    lastSeen: new Date().toISOString(),
+    seenCount: (existing.seenCount || 0) + 1
+  });
+}
+
+loadPackingCaches();
+
+// ==================================================================================
+//  REFRESH CACHÉ ODOO
+// ==================================================================================
 async function refreshPackingCache() {
   console.log('📦 [PACKING] Actualizando caché...');
   const startTime = Date.now();
@@ -1918,7 +1977,7 @@ function normalizeColor(color) {
 //  PARSER PDF CON CLAUDE OPUS 4.5
 // ==================================================================================
 async function parsePackingPDFWithAI(filePath) {
-  console.log('🧠 [PACKING-AI v3.0] Iniciando análisis con Claude Opus 4.5...');
+  console.log('🧠 [PACKING-AI v3.3] Iniciando análisis con Claude Opus 4.5...');
   const tempScriptPath = path.join(__dirname, 'temp_extractor.py');
   const absolutePath = path.resolve(filePath);
   
@@ -1993,7 +2052,7 @@ Extraer CADA LÍNEA del documento como un item separado. NO AGRUPES líneas aunq
 Cada línea contiene:
 - **Art. NO. / Item No**: Código del producto (ej: COSH244008)
 - **COLOUR / Color**: Color del producto (ej: BLACK, BURGUNDY)
-- **SIZE columns (25-46)**: Distribución por tallas - los números indican unidades por talla
+- **SIZE columns (25-46)**: Distribución por tallas
 - **PRS/CTN o PER CTN**: Pares por caja
 - **CTNS o TTL CTNS**: Número de cajas de ESA LÍNEA
 - **PRS o TTL PRS**: Total de unidades de ESA LÍNEA
@@ -2002,51 +2061,44 @@ Cada línea contiene:
 
 ### 1. EXTRAER CADA LÍNEA INDIVIDUAL
 Aunque haya 50 líneas con COSH244008-BLACK, extrae las 50 como items separados.
-Cada línea tiene diferente surtido de tallas y diferentes cantidades.
 
 ### 2. NORMALIZACIÓN DE COLORES
 BLACK → BLAC | WHITE → WHIT | BURGUNDY → BURG | BEIGE → BEIG
 BROWN → BROW | PEWTER → PEWT | GOLD → GOLD | SILVER → SILV
-LEOPARD → LEOP | OFFWHITE → OFFW | PINK → PINK | GREY → GREY
 
 ### 3. REFERENCIA COMPLETA
 código + guión + color normalizado: COSH244008 + BLACK = "COSH244008-BLAC"
 
 ### 4. SURTIDO DE TALLAS
 Detectar qué tallas tienen unidades en esa línea.
-Si columnas 25,26,27,28,29,30,31,32 tienen valores → sizeRange: "25-32"
-Si solo columnas 33,34 tienen valores → sizeRange: "33-34"
 
 ### 5. DETECCIÓN DE TIPO
 - DFKSUN*, DFSU*: Gafas (50 uds/caja, 22 cajas/palet)
 - DFTXSOCO*: Calcetines (50 uds/caja, 50 cajas/palet)
 - COSH*, DFSH*, BWSH*, BJSH*, TESH*: Calzado
-  - Tallas 25-35: Infantil (28 cajas/palet)
-  - Tallas 36-46: Adulto (14 cajas/palet)
 
 ## RESPUESTA JSON
 {
   "container_number": "MRKU0461515",
   "items": [
-    {"reference": "COSH244008-BLAC", "quantity": 168, "cartons": 12, "sizeRange": "25-32", "minSize": 25, "prsPerCtn": 14},
-    {"reference": "COSH244008-BLAC", "quantity": 36, "cartons": 12, "sizeRange": "33-34", "minSize": 33, "prsPerCtn": 3},
-    {"reference": "COSH244008-BLAC", "quantity": 260, "cartons": 20, "sizeRange": "25-35", "minSize": 25, "prsPerCtn": 13}
+    {"reference": "COSH244008-BLAC", "quantity": 168, "cartons": 12, "sizeRange": "25-32", "minSize": 25, "prsPerCtn": 14}
   ],
   "total_units": 5244,
   "total_cartons": 498,
   "confidence": "HIGH"
 }
 
-IMPORTANTE: Extrae TODAS las líneas del documento. Si hay 100 líneas, devuelve 100 items.`,
+IMPORTANTE: Extrae TODAS las líneas del documento.`,
       messages: [{ role: "user", content: `Analiza este packing list:\n\n${contentForAI}` }]
     });
 
     let aiText = '';
-for await (const event of aiResponse) {
-  if (event.type === 'content_block_delta' && event.delta?.text) {
-    aiText += event.delta.text;
-  }
-}
+    for await (const event of aiResponse) {
+      if (event.type === 'content_block_delta' && event.delta?.text) {
+        aiText += event.delta.text;
+      }
+    }
+    
     let parsedAI;
     try {
       const jsonMatch = aiText.match(/\{[\s\S]*\}/);
@@ -2060,7 +2112,6 @@ for await (const event of aiResponse) {
       parsedAI.container_number = extracted.container_candidates[0];
     }
 
-    // Normalizar colores por si Opus no lo hizo
     if (parsedAI.items) {
       parsedAI.items = parsedAI.items.map(item => {
         let ref = item.reference || '';
@@ -2072,7 +2123,7 @@ for await (const event of aiResponse) {
       });
     }
     
-    console.log(`  ✅ ${parsedAI.items?.length || 0} referencias (Confidence: ${parsedAI.confidence})`);
+    console.log(`  ✅ ${parsedAI.items?.length || 0} líneas (Confidence: ${parsedAI.confidence})`);
     console.log(`  📦 Total: ${parsedAI.total_units || 'N/A'} uds, ${parsedAI.total_cartons || 'N/A'} cajas`);
     
     return parsedAI;
@@ -2097,44 +2148,33 @@ function enrichPackingListAI(parsedData) {
 
   if (!parsedData.items || parsedData.items.length === 0) return { items: enriched, summary };
 
-  // ========== FUNCIONES AUXILIARES ==========
   function getPackingRules(reference, minSize, productType) {
     const ref = (reference || '').toUpperCase();
-    
     if (productType === 'SUNGLASSES' || ref.startsWith('DFKSUN') || ref.startsWith('DFSU')) {
       return { udsPerBox: 50, boxesPerPallet: 22, type: 'SUNGLASSES' };
     }
     if (productType === 'SOCKS' || ref.includes('DFTXSOCO') || ref.includes('SOC')) {
       return { udsPerBox: 50, boxesPerPallet: 50, type: 'SOCKS' };
     }
-    
     const size = minSize || 36;
-    if (size < 36) {
-      return { udsPerBox: null, boxesPerPallet: 28, type: 'FOOTWEAR_KIDS' };
-    }
+    if (size < 36) return { udsPerBox: null, boxesPerPallet: 28, type: 'FOOTWEAR_KIDS' };
     return { udsPerBox: null, boxesPerPallet: 14, type: 'FOOTWEAR_ADULT' };
   }
 
   function findProductInOdoo(reference) {
     let product = packingProductCache.get(reference);
     if (product) return product;
-    
     product = packingProductCache.get(reference.replace(/-/g, ''));
     if (product) return product;
-    
     const baseCode = reference.split('-')[0];
     product = packingProductCache.get(baseCode);
     if (product) return product;
-    
     for (const [key, value] of packingProductCache.entries()) {
-      if (key.includes(baseCode) || key.includes(reference.replace(/-/g, ''))) {
-        return value;
-      }
+      if (key.includes(baseCode) || key.includes(reference.replace(/-/g, ''))) return value;
     }
     return null;
   }
 
-  // ========== PASO 1: PROCESAR CADA LÍNEA INDIVIDUAL ==========
   const groupedTotals = new Map();
 
   parsedData.items.forEach((item, index) => {
@@ -2142,19 +2182,14 @@ function enrichPackingListAI(parsedData) {
     if (!reference) return;
 
     const rules = getPackingRules(reference, item.minSize, item.productType);
-    
     let totalBoxes = item.cartons || 0;
     if (!totalBoxes && rules.udsPerBox && item.quantity) {
       totalBoxes = Math.ceil(item.quantity / rules.udsPerBox);
     }
-    
     let totalPallets = totalBoxes && rules.boxesPerPallet ? totalBoxes / rules.boxesPerPallet : 0;
 
     const productInfo = findProductInOdoo(reference);
-    
-    let abcClass = 'NEW';
-    let currentStock = 0;
-    let stockLocations = [];
+    let abcClass = 'NEW', currentStock = 0, stockLocations = [];
     
     if (productInfo) {
       abcClass = packingAbcCache.get(productInfo.id) || 'D';
@@ -2162,21 +2197,17 @@ function enrichPackingListAI(parsedData) {
       if (stock) { 
         currentStock = stock.total; 
         stockLocations = (stock.locations || []).map(loc => ({
-          location: loc.name || loc.location || 'Desconocida',
-          qty: loc.qty || loc.quantity || 0
+          location: loc.name || 'Desconocida', qty: loc.qty || 0
         })).filter(loc => loc.qty > 0);
       }
     }
 
-    // Acumular para resumen agrupado
     if (!groupedTotals.has(reference)) {
       groupedTotals.set(reference, { 
         reference, totalUnits: 0, totalBoxes: 0, 
         productName: productInfo?.name || 'No encontrado',
         abcClass, currentStock, stockLocations,
-        productType: rules.type,
-        boxesPerPallet: rules.boxesPerPallet,
-        lines: 0
+        productType: rules.type, boxesPerPallet: rules.boxesPerPallet, lines: 0
       });
     }
     const grouped = groupedTotals.get(reference);
@@ -2184,7 +2215,6 @@ function enrichPackingListAI(parsedData) {
     grouped.totalBoxes += totalBoxes;
     grouped.lines++;
 
-    // Actualizar totales generales
     const qty = item.quantity || 0;
     summary.byABC[abcClass] = (summary.byABC[abcClass] || 0) + qty;
     summary.byType[rules.type] = (summary.byType[rules.type] || 0) + qty;
@@ -2192,64 +2222,38 @@ function enrichPackingListAI(parsedData) {
     summary.totalBoxes += totalBoxes;
     summary.totalPallets += totalPallets;
 
-    // Añadir línea individual
     enriched.push({
-      lineNumber: index + 1,
-      itemNo: reference,
+      lineNumber: index + 1, itemNo: reference,
       productName: productInfo?.name || 'No encontrado en Odoo',
-      sizeRange: item.sizeRange || '-',
-      prsPerCtn: item.prsPerCtn || '-',
-      totalUnits: qty,
-      totalBoxes: totalBoxes,
-      totalPallets: Math.round(totalPallets * 100) / 100,
-      productType: rules.type,
-      boxesPerPallet: rules.boxesPerPallet,
-      abcClass,
-      currentStock,
-      stockLocations: stockLocations.slice(0, 5)
+      sizeRange: item.sizeRange || '-', prsPerCtn: item.prsPerCtn || '-',
+      totalUnits: qty, totalBoxes, totalPallets: Math.round(totalPallets * 100) / 100,
+      productType: rules.type, boxesPerPallet: rules.boxesPerPallet,
+      abcClass, currentStock, stockLocations: stockLocations.slice(0, 5)
     });
   });
 
-  // ========== PASO 2: GENERAR RESUMEN AGRUPADO ==========
   groupedTotals.forEach((data, reference) => {
     const pallets = data.totalBoxes / data.boxesPerPallet;
-    
     summary.groupedTotals.push({
-      reference: data.reference,
-      productName: data.productName,
-      totalUnits: data.totalUnits,
-      totalBoxes: data.totalBoxes,
-      totalPallets: Math.round(pallets * 100) / 100,
-      lines: data.lines,
-      abcClass: data.abcClass,
-      currentStock: data.currentStock,
-      stockLocations: data.stockLocations
+      reference: data.reference, productName: data.productName,
+      totalUnits: data.totalUnits, totalBoxes: data.totalBoxes,
+      totalPallets: Math.round(pallets * 100) / 100, lines: data.lines,
+      abcClass: data.abcClass, currentStock: data.currentStock, stockLocations: data.stockLocations
     });
-
     if (data.currentStock > 0) {
       const locNames = data.stockLocations.slice(0, 3).map(l => l.location).join(', ');
       summary.consolidationAlerts.push({ 
-        itemNo: reference, 
-        currentStock: data.currentStock, 
-        incomingUnits: data.totalUnits,
+        itemNo: reference, currentStock: data.currentStock, incomingUnits: data.totalUnits,
         message: `⚠️ Stock: ${data.currentStock} uds en ${data.stockLocations.length} ubic. (${locNames})`
       });
     }
-
-    if (data.abcClass === 'NEW') {
-      summary.newReferences.push(reference);
-    }
+    if (data.abcClass === 'NEW') summary.newReferences.push(reference);
   });
 
   summary.totalPallets = Math.round(summary.totalPallets * 100) / 100;
+  enriched.sort((a, b) => a.itemNo !== b.itemNo ? a.itemNo.localeCompare(b.itemNo) : a.lineNumber - b.lineNumber);
 
-  // Ordenar por referencia y luego por número de línea
-  enriched.sort((a, b) => {
-    if (a.itemNo !== b.itemNo) return a.itemNo.localeCompare(b.itemNo);
-    return a.lineNumber - b.lineNumber;
-  });
-
-  console.log(`  📊 ${parsedData.items.length} líneas procesadas → ${groupedTotals.size} referencias únicas`);
+  console.log(`  📊 ${parsedData.items.length} líneas → ${groupedTotals.size} referencias únicas`);
   console.log(`  📦 Total: ${summary.totalUnits} uds, ${summary.totalBoxes} cajas, ${summary.totalPallets} palets`);
 
   return { items: enriched, summary };
@@ -2260,9 +2264,43 @@ function enrichPackingListAI(parsedData) {
 // ==================================================================================
 app.get("/api/packing/health", (req, res) => {
   res.json({
-    status: 'ok', version: '3.2-OPUS',
-    cache: { products: packingProductCache.size, abc: packingAbcCache.size, stock: packingStockCache.size, lastUpdate: packingLastCacheUpdate }
+    status: 'ok', version: '3.3-OPUS-CACHE',
+    cache: { 
+      odoo: { products: packingProductCache.size, abc: packingAbcCache.size, stock: packingStockCache.size, lastUpdate: packingLastCacheUpdate },
+      analysis: { count: packingAnalysisCache.size, maxSize: 100 },
+      references: { count: packingReferencesCache.size, maxSize: 1000 }
+    }
   });
+});
+
+app.get("/api/packing/cache/stats", (req, res) => {
+  res.json({
+    analysis: {
+      count: packingAnalysisCache.size,
+      containers: [...packingAnalysisCache.values()].map(v => ({
+        container: v.containerNumber, fileName: v.fileName, items: v.items?.length || 0, date: v.analyzedAt
+      }))
+    },
+    references: {
+      count: packingReferencesCache.size,
+      sample: [...packingReferencesCache.entries()].slice(0, 20).map(([ref, data]) => ({
+        reference: ref, type: data.productType, seenCount: data.seenCount
+      }))
+    }
+  });
+});
+
+app.delete("/api/packing/cache/clear", async (req, res) => {
+  const what = req.query.what || 'all';
+  if (what === 'all' || what === 'analysis') {
+    packingAnalysisCache.clear();
+    await fs.unlink(CACHE_FILE_ANALYSIS).catch(() => {});
+  }
+  if (what === 'all' || what === 'references') {
+    packingReferencesCache.clear();
+    await fs.unlink(CACHE_FILE_REFERENCES).catch(() => {});
+  }
+  res.json({ success: true, message: `Caché ${what} limpiado` });
 });
 
 app.post("/api/packing/cache/refresh", async (req, res) => {
@@ -2277,28 +2315,48 @@ app.post("/api/packing/cache/refresh", async (req, res) => {
 app.post("/api/packing/analyze", packingUpload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
-    console.log(`\n📄 [PACKING v3.2] Analizando: ${req.file.originalname}`);
+    
+    const forceReanalyze = req.query.force === 'true';
+    console.log(`\n📄 [PACKING v3.3] Analizando: ${req.file.originalname}${forceReanalyze ? ' (FORZADO)' : ''}`);
+
+    const pdfHash = await calculatePDFHash(req.file.path);
+    console.log(`  🔑 Hash: ${pdfHash.substring(0, 12)}...`);
+
+    if (!forceReanalyze && packingAnalysisCache.has(pdfHash)) {
+      const cached = packingAnalysisCache.get(pdfHash);
+      console.log(`  ⚡ CACHE HIT! (${cached.items?.length || 0} líneas)`);
+      await fs.unlink(req.file.path).catch(() => {});
+      return res.json({ ...cached, fromCache: true, cacheDate: cached.analyzedAt });
+    }
 
     if (!packingLastCacheUpdate || (Date.now() - packingLastCacheUpdate.getTime()) > 3600000) {
-      try { await refreshPackingCache(); } catch (e) { console.warn('⚠️ Cache no actualizada'); }
+      try { await refreshPackingCache(); } catch (e) { console.warn('⚠️ Cache Odoo no actualizada'); }
     }
 
     const parsed = await parsePackingPDFWithAI(req.file.path);
     const containerNumber = parsed.container_number || req.file.originalname.match(/[A-Z]{4}\d{7}/)?.[0] || 'UNKNOWN';
     const enriched = enrichPackingListAI(parsed);
 
-    await fs.unlink(req.file.path).catch(() => {});
-    console.log(`✅ [PACKING] Completado: ${enriched.items.length} líneas, ${enriched.summary.groupedTotals.length} referencias\n`);
-
-    res.json({ 
-      success: true, 
-      containerNumber, 
-      summary: enriched.summary, 
-      items: enriched.items,
-      groupedTotals: enriched.summary.groupedTotals,
-      aiPowered: true, 
-      model: 'opus-4.5' 
+    (enriched.summary.groupedTotals || []).forEach(item => {
+      learnReference(item.reference, {
+        productType: item.productType, boxesPerPallet: item.boxesPerPallet,
+        abcClass: item.abcClass, productName: item.productName
+      });
     });
+
+    const result = {
+      success: true, containerNumber, summary: enriched.summary, items: enriched.items,
+      groupedTotals: enriched.summary.groupedTotals, aiPowered: true, model: 'opus-4.5',
+      analyzedAt: new Date().toISOString(), fileName: req.file.originalname
+    };
+    
+    packingAnalysisCache.set(pdfHash, result);
+    savePackingCaches().catch(err => console.warn('Error guardando caché:', err));
+
+    await fs.unlink(req.file.path).catch(() => {});
+    console.log(`✅ [PACKING] Completado: ${enriched.items.length} líneas (guardado en caché)\n`);
+
+    res.json({ ...result, fromCache: false });
   } catch (error) {
     console.error('❌ [PACKING] Error:', error);
     if (req.file) await fs.unlink(req.file.path).catch(() => {});
@@ -2313,4 +2371,4 @@ app.get("/api/packing/download/:filename", (req, res) => {
 // ==================================================================================
 //  SERVIDOR - INICIO
 // ==================================================================================
-server.listen(PORT, '0.0.0.0', () => console.log(` 🚀  CEREBRO CLAUDE + CFO IA + DEVOLUCIONES B2B + PACKING v3.2 OPUS en ${PORT}`));
+server.listen(PORT, '0.0.0.0', () => console.log(` 🚀  CEREBRO CLAUDE + CFO IA + DEVOLUCIONES B2B + PACKING v3.3 OPUS+CACHE en ${PORT}`));
