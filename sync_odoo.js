@@ -8,7 +8,7 @@ import { explanationEngine } from './explanation_engine.js';
 // --- CONFIGURACIÓN ODOO (SEGURA) ---
 const ODOO_CONFIG = {
   url: process.env.ODOO_URL,
-  db: process.env.ODOO_DB,
+  db: 'blackdivision',
   username: process.env.ODOO_USERNAME,
   password: process.env.ODOO_PASSWORD,
 };
