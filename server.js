@@ -1895,7 +1895,7 @@ async function refreshPackingCache() {
 }
 
 async function parsePackingPDFWithAI(filePath) {
-  console.log('🧠 [PACKING-AI] Iniciando análisis inteligente del PDF...');
+  console.log('🧠 [PACKING-AI] Iniciando análisis inteligente del PDF con Claude Sonnet...');
   const tempScriptPath = path.join(__dirname, 'temp_extractor.py');
   const absolutePath = path.resolve(filePath);
   
@@ -1938,24 +1938,70 @@ except Exception as e:
     const extracted = JSON.parse(stdout);
     if (extracted.error) throw new Error(extracted.error);
 
-    console.log(`  📄 Extraído: ${extracted.tables.length} tablas`);
-    console.log(`  🤖 Enviando a Claude para análisis...`);
+    console.log(`  📄 Extraído: ${extracted.tables.length} tablas, ${extracted.raw_text.length} caracteres`);
+    console.log(`  🤖 Enviando a Claude Sonnet 4 para análisis profundo...`);
 
+    // Preparar contenido - enviar más datos a Sonnet
     let contentForAI = "";
     extracted.tables.forEach((table, idx) => {
       const tableStr = table.map(row => row.join(' | ')).join('\n');
-      if (tableStr.length < 10000) contentForAI += `\n--- TABLA ${idx + 1} ---\n${tableStr}\n`;
+      contentForAI += `\n--- TABLA ${idx + 1} ---\n${tableStr}\n`;
     });
-    if (contentForAI.length < 500) contentForAI += `\n--- TEXTO ---\n${extracted.raw_text.substring(0, 8000)}`;
-    if (contentForAI.length > 15000) contentForAI = contentForAI.substring(0, 15000);
+    
+    // Si hay poco contenido de tablas, añadir texto raw
+    if (contentForAI.length < 1000) {
+      contentForAI += `\n--- TEXTO COMPLETO ---\n${extracted.raw_text}`;
+    }
+    
+    // Limitar pero dar más contexto que antes
+    if (contentForAI.length > 50000) contentForAI = contentForAI.substring(0, 50000);
 
     const anthropic = getAnthropicClient();
     const aiResponse = await anthropic.messages.create({
-      model: "claude-3-haiku-20240307",
-      max_tokens: 4096,
-      system: `Eres un experto en logística analizando packing lists. Extrae REFERENCIAS y CANTIDADES.
-RESPONDE SOLO con JSON: {"container_number": "XXXX1234567 o null", "items": [{"reference": "CODIGO", "quantity": 100}], "total_units": 150, "confidence": "HIGH/MEDIUM/LOW"}`,
-      messages: [{ role: "user", content: `Extrae referencias y cantidades:\n${contentForAI}` }]
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 8192,
+      system: `Eres un experto en logística de almacén analizando packing lists de contenedores marítimos.
+
+TU MISIÓN: Extraer TODOS los productos del documento con máxima precisión.
+
+REGLAS DE EXTRACCIÓN:
+1. **REFERENCIA COMPLETA**: Siempre incluir el COLOR como sufijo separado por guión.
+   - Ejemplo: "COSH244008" + "BLACK" = "COSH244008-BLACK"
+   - Ejemplo: "DFSH321085" + "BLAC" = "DFSH321085-BLAC"
+   
+2. **AGRUPAR por referencia+color**: Si hay múltiples líneas del mismo producto, SUMAR las cantidades.
+
+3. **CAMPOS A EXTRAER por cada item**:
+   - reference: Código + Color (ej: "COSH244008-BLACK")
+   - quantity: Total de unidades (columna PRS, QTY, PCS, o similar)
+   - cartons: Total de cajas (columna CTNS, CTN, CARTONS)
+   - sizeRange: Rango de tallas si existe (ej: "25-36", "36-41")
+   - minSize: Talla mínima numérica (para detectar infantil vs adulto)
+
+4. **TIPOS DE PRODUCTO** (detectar por prefijo):
+   - DFKSUN*, DFSU* = Gafas de sol (sin tallas)
+   - DFSH*, BWSH*, BJSH*, COSH*, TESH* = Calzado (con tallas)
+   - DFTXSOCO*, SOC* = Calcetines
+
+5. **CONTAINER**: Buscar código tipo XXXX1234567 (4 letras + 7 números)
+
+RESPONDE ÚNICAMENTE con JSON válido:
+{
+  "container_number": "MRKU0461515",
+  "items": [
+    {
+      "reference": "COSH244008-BLACK",
+      "quantity": 960,
+      "cartons": 139,
+      "sizeRange": "25-36",
+      "minSize": 25
+    }
+  ],
+  "total_units": 5244,
+  "total_cartons": 498,
+  "confidence": "HIGH"
+}`,
+      messages: [{ role: "user", content: `Analiza este packing list y extrae TODOS los productos:\n\n${contentForAI}` }]
     });
 
     const aiText = aiResponse.content[0].text;
@@ -1963,15 +2009,19 @@ RESPONDE SOLO con JSON: {"container_number": "XXXX1234567 o null", "items": [{"r
     try {
       const jsonMatch = aiText.match(/\{[\s\S]*\}/);
       parsedAI = jsonMatch ? JSON.parse(jsonMatch[0]) : { items: [], confidence: "LOW" };
-    } catch {
+    } catch (e) {
+      console.error('  ⚠️ Error parseando JSON de IA:', e.message);
       parsedAI = { items: [], confidence: "LOW" };
     }
     
+    // Fallback para container
     if (!parsedAI.container_number && extracted.container_candidates.length > 0) {
       parsedAI.container_number = extracted.container_candidates[0];
     }
     
-    console.log(`  ✅ ${parsedAI.items?.length || 0} referencias encontradas`);
+    console.log(`  ✅ ${parsedAI.items?.length || 0} referencias encontradas (Confidence: ${parsedAI.confidence})`);
+    console.log(`  📦 Total unidades: ${parsedAI.total_units || 'N/A'}, Cajas: ${parsedAI.total_cartons || 'N/A'}`);
+    
     return parsedAI;
   } catch (error) {
     await fs.unlink(tempScriptPath).catch(() => {});
