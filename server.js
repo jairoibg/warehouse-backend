@@ -1981,19 +1981,87 @@ RESPONDE SOLO con JSON: {"container_number": "XXXX1234567 o null", "items": [{"r
 
 function enrichPackingListAI(parsedData) {
   const enriched = [];
-  const summary = { totalUnits: 0, byABC: { A: 0, B: 0, C: 0, D: 0, NEW: 0 }, newReferences: [], consolidationAlerts: [] };
+  const summary = { 
+    totalUnits: 0, 
+    totalBoxes: 0,
+    totalPallets: 0,
+    byABC: { A: 0, B: 0, C: 0, D: 0, NEW: 0 }, 
+    byType: { SUNGLASSES: 0, SOCKS: 0, FOOTWEAR_ADULT: 0, FOOTWEAR_KIDS: 0, UNKNOWN: 0 },
+    newReferences: [], 
+    consolidationAlerts: [] 
+  };
 
   if (!parsedData.items) return { items: enriched, summary };
 
+  // Función para detectar reglas de empaque
+  function getPackingRules(reference, sizeRange, prsPerCtn) {
+    const ref = (reference || '').toUpperCase();
+    
+    // GAFAS DE SOL - Regla fija 50 uds/caja, 22 cajas/palet
+    if (ref.startsWith('DFKSUN') || ref.startsWith('DFSU')) {
+      return { udsPerBox: 50, boxesPerPallet: 22, type: 'SUNGLASSES' };
+    }
+    
+    // CALCETINES - Regla fija 50 uds/caja, 50 cajas/palet
+    if (ref.includes('DFTXSOCO') || ref.includes('SOC')) {
+      return { udsPerBox: 50, boxesPerPallet: 50, type: 'SOCKS' };
+    }
+    
+    // CALZADO - Detectar por tallas
+    let minSize = 36; // Por defecto adulto
+    if (sizeRange) {
+      const match = sizeRange.match(/(\d+)/);
+      if (match) minSize = parseInt(match[1]);
+    }
+    
+    if (minSize < 36) {
+      // INFANTIL (tallas 25-35) - 28 cajas/palet
+      return { udsPerBox: prsPerCtn || null, boxesPerPallet: 28, type: 'FOOTWEAR_KIDS' };
+    } else {
+      // ADULTO (tallas 36+) - 14 cajas/palet
+      return { udsPerBox: prsPerCtn || null, boxesPerPallet: 14, type: 'FOOTWEAR_ADULT' };
+    }
+  }
+
+  // Agrupar por referencia
   const byReference = new Map();
   parsedData.items.forEach(item => {
     const ref = (item.reference || '').toUpperCase().trim();
     if (!ref) return;
-    if (!byReference.has(ref)) byReference.set(ref, { reference: ref, totalUnits: 0 });
-    byReference.get(ref).totalUnits += item.quantity || 0;
+    
+    if (!byReference.has(ref)) {
+      byReference.set(ref, { 
+        reference: ref, 
+        totalUnits: 0, 
+        totalBoxes: 0,
+        sizeRange: item.sizeRange || null,
+        prsPerCtn: item.prsPerCtn || item.unitsPerCarton || null
+      });
+    }
+    const entry = byReference.get(ref);
+    entry.totalUnits += item.quantity || 0;
+    entry.totalBoxes += item.cartons || 0;
+    if (item.sizeRange) entry.sizeRange = item.sizeRange;
+    if (item.prsPerCtn) entry.prsPerCtn = item.prsPerCtn;
   });
 
   byReference.forEach((refData, reference) => {
+    // Obtener reglas de empaque
+    const rules = getPackingRules(reference, refData.sizeRange, refData.prsPerCtn);
+    
+    // Calcular cajas
+    let calculatedBoxes = refData.totalBoxes;
+    if (!calculatedBoxes && rules.udsPerBox) {
+      calculatedBoxes = Math.ceil(refData.totalUnits / rules.udsPerBox);
+    }
+    
+    // Calcular palets
+    let calculatedPallets = 0;
+    if (calculatedBoxes && rules.boxesPerPallet) {
+      calculatedPallets = calculatedBoxes / rules.boxesPerPallet;
+    }
+
+    // Buscar producto en Odoo
     let productInfo = packingProductCache.get(reference);
     if (!productInfo) {
       const variants = [reference.replace(/-/g, ''), reference.split('-')[0]];
@@ -2018,19 +2086,33 @@ function enrichPackingListAI(parsedData) {
       summary.newReferences.push(reference);
     }
 
+    // Actualizar contadores del summary
     summary.byABC[abcClass] = (summary.byABC[abcClass] || 0) + refData.totalUnits;
+    summary.byType[rules.type] = (summary.byType[rules.type] || 0) + refData.totalUnits;
     summary.totalUnits += refData.totalUnits;
+    summary.totalBoxes += calculatedBoxes || 0;
+    summary.totalPallets += calculatedPallets || 0;
 
     enriched.push({
       itemNo: reference,
       productName: productInfo?.name || 'Desconocido',
       totalUnits: refData.totalUnits,
-      abcClass, currentStock,
+      totalBoxes: calculatedBoxes || 0,
+      totalPallets: Math.round(calculatedPallets * 100) / 100,
+      productType: rules.type,
+      udsPerBox: rules.udsPerBox || 'Variable',
+      boxesPerPallet: rules.boxesPerPallet,
+      abcClass, 
+      currentStock,
       stockLocations: stockLocations.slice(0, 3),
       alerts
     });
   });
 
+  // Redondear totales
+  summary.totalPallets = Math.round(summary.totalPallets * 100) / 100;
+
+  // Ordenar por ABC
   enriched.sort((a, b) => {
     const order = { A: 1, B: 2, C: 3, D: 4, NEW: 5 };
     return (order[a.abcClass] || 99) - (order[b.abcClass] || 99);
