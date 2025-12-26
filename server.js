@@ -1556,5 +1556,535 @@ setInterval(async () => {
   }
 }, POLLING_INTERVAL_MS);
 
-server.listen(PORT, '0.0.0.0', () => console.log(` 🚀  CEREBRO CLAUDE + CFO IA ACTIVO en ${PORT}`));
-// Packing v2.1 - Deploy 2025-12-26 00:20
+// ==================================================================================
+//  ⭐ MÓDULO DEVOLUCIONES B2B
+// ==================================================================================
+import multer from 'multer';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+const execPromise = promisify(exec);
+
+const DEVOLUCIONES_FILE = path.join(__dirname, "data", "devoluciones.json");
+
+// Asegurar que existe el archivo de devoluciones
+const DATA_DIR = path.join(__dirname, "data");
+if (!fsSync.existsSync(DATA_DIR)) {
+  fsSync.mkdirSync(DATA_DIR, { recursive: true });
+}
+if (!fsSync.existsSync(DEVOLUCIONES_FILE)) {
+  fsSync.writeFileSync(DEVOLUCIONES_FILE, '[]', 'utf8');
+  console.log("📁 Archivo devoluciones.json creado");
+}
+
+// Leer devoluciones del archivo JSON
+async function getDevoluciones() {
+  try {
+    const data = await fs.readFile(DEVOLUCIONES_FILE, 'utf8');
+    return JSON.parse(data);
+  } catch (e) {
+    return [];
+  }
+}
+
+// Guardar devoluciones
+async function saveDevoluciones(devoluciones) {
+  await fs.writeFile(DEVOLUCIONES_FILE, JSON.stringify(devoluciones, null, 2), 'utf8');
+}
+
+// Buscar en Odoo por diferentes criterios
+async function buscarEnOdoo(query, tipo = 'todos') {
+  console.log(`🔍 [DEVOLUCIONES] Buscando "${query}" tipo: ${tipo}`);
+  
+  const common = xmlrpc.createSecureClient({ url: `${process.env.ODOO_URL}/xmlrpc/2/common` });
+  const models = xmlrpc.createSecureClient({ url: `${process.env.ODOO_URL}/xmlrpc/2/object` });
+  
+  const uid = await new Promise((resolve, reject) => {
+    common.methodCall('authenticate', [
+      'blackdivision', process.env.ODOO_USERNAME, process.env.ODOO_PASSWORD, {}
+    ], (err, res) => err ? reject(err) : resolve(res));
+  });
+
+  let domain = [
+    ['picking_type_id.code', '=', 'outgoing'],
+    ['state', '=', 'done']
+  ];
+
+  const q = query.trim();
+  
+  if (tipo === 'pedido') {
+    domain.push('|');
+    domain.push(['origin', 'ilike', q]);
+    domain.push(['sale_id.name', 'ilike', q]);
+  } else if (tipo === 'albaran') {
+    domain.push(['name', 'ilike', q]);
+  } else if (tipo === 'cliente') {
+    domain.push(['partner_id.name', 'ilike', q]);
+  } else {
+    domain.push('|', '|', '|');
+    domain.push(['name', 'ilike', q]);
+    domain.push(['origin', 'ilike', q]);
+    domain.push(['partner_id.name', 'ilike', q]);
+    domain.push(['sale_id.name', 'ilike', q]);
+  }
+
+  try {
+    const pickings = await new Promise((resolve, reject) => {
+      models.methodCall('execute_kw', [
+        'blackdivision', uid, process.env.ODOO_PASSWORD,
+        'stock.picking', 'search_read',
+        [domain],
+        { 
+          fields: ['id', 'name', 'partner_id', 'origin', 'date_done', 'carrier_id', 'company_id', 'sale_id'],
+          limit: 20,
+          order: 'date_done desc'
+        }
+      ], (err, res) => err ? reject(err) : resolve(res));
+    });
+
+    const devolucionesExistentes = await getDevoluciones();
+
+    const resultados = pickings.map(p => {
+      let company = 'Black';
+      if (p.company_id) {
+        const companyName = p.company_id[1] || '';
+        if (companyName.toLowerCase().includes('gold')) company = 'Gold';
+      }
+      if (p.name && p.name.includes('CLAGD')) company = 'Gold';
+
+      return {
+        picking_id: p.id,
+        albaran: p.name,
+        cliente: p.partner_id ? p.partner_id[1] : 'N/A',
+        pedido: p.sale_id ? p.sale_id[1] : (p.origin || 'N/A'),
+        fecha_envio: p.date_done,
+        carrier: p.carrier_id ? p.carrier_id[1] : null,
+        company: company,
+        devolucion_existente: devolucionesExistentes.find(d => d.picking_id === p.id) || null
+      };
+    });
+
+    return { resultados };
+  } catch (error) {
+    console.error('❌ Error buscando en Odoo:', error);
+    return { error: error.message };
+  }
+}
+
+// ENDPOINTS DEVOLUCIONES B2B
+app.get("/api/devoluciones/buscar", async (req, res) => {
+  try {
+    const { q, tipo = 'todos' } = req.query;
+    if (!q || q.length < 2) {
+      return res.status(400).json({ error: 'Búsqueda muy corta (mín. 2 caracteres)' });
+    }
+    const resultado = await buscarEnOdoo(q, tipo);
+    res.json(resultado);
+  } catch (error) {
+    console.error('❌ Error en búsqueda:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/devoluciones", async (req, res) => {
+  try {
+    const { picking_id, picking_name, partner_name, company, tracking_retorno, recibido_por, notas } = req.body;
+    if (!picking_id || !picking_name) {
+      return res.status(400).json({ error: 'Datos incompletos' });
+    }
+    const devoluciones = await getDevoluciones();
+    const existe = devoluciones.find(d => d.picking_id === picking_id);
+    if (existe) {
+      return res.status(400).json({ error: 'Esta expedición ya tiene una devolución registrada' });
+    }
+    const nuevaDevolucion = {
+      id: Date.now(),
+      picking_id,
+      picking_name,
+      partner_name,
+      company: company || 'Black',
+      tracking_retorno: tracking_retorno || null,
+      recibido_por: recibido_por || 'Operario',
+      notas: notas || null,
+      fecha_recepcion: new Date().toISOString(),
+      estado: 'recibido'
+    };
+    devoluciones.push(nuevaDevolucion);
+    await saveDevoluciones(devoluciones);
+    console.log(`✅ [DEVOLUCIONES] Registrada: ${picking_name} por ${recibido_por}`);
+    res.json({ success: true, devolucion: nuevaDevolucion });
+  } catch (error) {
+    console.error('❌ Error registrando devolución:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/devoluciones", async (req, res) => {
+  try {
+    const { company, limit = 50, offset = 0 } = req.query;
+    let devoluciones = await getDevoluciones();
+    if (company) {
+      devoluciones = devoluciones.filter(d => d.company && d.company.toLowerCase() === company.toLowerCase());
+    }
+    devoluciones.sort((a, b) => new Date(b.fecha_recepcion) - new Date(a.fecha_recepcion));
+    const total = devoluciones.length;
+    const paginadas = devoluciones.slice(parseInt(offset), parseInt(offset) + parseInt(limit));
+    res.json({ devoluciones: paginadas, total, limit: parseInt(limit), offset: parseInt(offset) });
+  } catch (error) {
+    console.error('❌ Error listando devoluciones:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/devoluciones/stats", async (req, res) => {
+  try {
+    const devoluciones = await getDevoluciones();
+    const now = new Date();
+    const hoy = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const inicioSemana = new Date(hoy);
+    inicioSemana.setDate(hoy.getDate() - hoy.getDay());
+    const inicioMes = new Date(now.getFullYear(), now.getMonth(), 1);
+    const hace30Dias = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const contadores = {
+      hoy: devoluciones.filter(d => new Date(d.fecha_recepcion) >= hoy).length,
+      semana: devoluciones.filter(d => new Date(d.fecha_recepcion) >= inicioSemana).length,
+      mes: devoluciones.filter(d => new Date(d.fecha_recepcion) >= inicioMes).length,
+      total: devoluciones.length
+    };
+
+    const devs30Dias = devoluciones.filter(d => new Date(d.fecha_recepcion) >= hace30Dias);
+    const porCompany = {};
+    devs30Dias.forEach(d => {
+      const comp = d.company || 'Sin empresa';
+      porCompany[comp] = (porCompany[comp] || 0) + 1;
+    });
+
+    const ultimas = devoluciones.sort((a, b) => new Date(b.fecha_recepcion) - new Date(a.fecha_recepcion)).slice(0, 5);
+
+    res.json({
+      contadores,
+      por_company: Object.entries(porCompany).map(([company, count]) => ({ company, count })),
+      ultimas
+    });
+  } catch (error) {
+    console.error('❌ Error en stats:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/devoluciones/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    let devoluciones = await getDevoluciones();
+    const index = devoluciones.findIndex(d => d.id === parseInt(id));
+    if (index === -1) {
+      return res.status(404).json({ error: 'Devolución no encontrada' });
+    }
+    const eliminada = devoluciones.splice(index, 1)[0];
+    await saveDevoluciones(devoluciones);
+    console.log(`🗑️ [DEVOLUCIONES] Eliminada: ${eliminada.picking_name}`);
+    res.json({ success: true, eliminada });
+  } catch (error) {
+    console.error('❌ Error eliminando devolución:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================================================================================
+//  ⭐ MÓDULO PACKING LIST ANALYZER
+// ==================================================================================
+const packingStorage = multer.diskStorage({
+  destination: './uploads/',
+  filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
+});
+const packingUpload = multer({ storage: packingStorage, limits: { fileSize: 50 * 1024 * 1024 } });
+
+if (!fsSync.existsSync('./uploads')) fsSync.mkdirSync('./uploads', { recursive: true });
+if (!fsSync.existsSync('./packing-outputs')) fsSync.mkdirSync('./packing-outputs', { recursive: true });
+
+let packingProductCache = new Map();
+let packingAbcCache = new Map();
+let packingStockCache = new Map();
+let packingLastCacheUpdate = null;
+
+async function refreshPackingCache() {
+  console.log('📦 [PACKING] Actualizando caché...');
+  const startTime = Date.now();
+
+  try {
+    const common = xmlrpc.createSecureClient({ url: `${process.env.ODOO_URL}/xmlrpc/2/common` });
+    const models = xmlrpc.createSecureClient({ url: `${process.env.ODOO_URL}/xmlrpc/2/object` });
+    
+    const uid = await new Promise((resolve, reject) => {
+      common.methodCall('authenticate', [
+        'blackdivision', process.env.ODOO_USERNAME, process.env.ODOO_PASSWORD, {}
+      ], (err, res) => err ? reject(err) : resolve(res));
+    });
+
+    console.log('  📦 Descargando productos...');
+    const products = await new Promise((resolve, reject) => {
+      models.methodCall('execute_kw', [
+        'blackdivision', uid, process.env.ODOO_PASSWORD,
+        'product.product', 'search_read',
+        [[['default_code', '!=', false], ['active', '=', true]]],
+        { fields: ['id', 'default_code', 'name', 'standard_price'], limit: 50000 }
+      ], (err, res) => err ? reject(err) : resolve(res));
+    });
+
+    packingProductCache.clear();
+    products.forEach(p => {
+      if (p.default_code) {
+        packingProductCache.set(p.default_code.toUpperCase().trim(), {
+          id: p.id, name: p.name, code: p.default_code, cost: p.standard_price || 0
+        });
+      }
+    });
+    console.log(`    ✅ ${packingProductCache.size} productos`);
+
+    console.log('  📊 Descargando clasificación ABC...');
+    try {
+      const abcData = await new Promise((resolve, reject) => {
+        models.methodCall('execute_kw', [
+          'blackdivision', uid, process.env.ODOO_PASSWORD,
+          'abc.classification.product.level', 'search_read',
+          [[]], { fields: ['product_id', 'level_id'], limit: 100000 }
+        ], (err, res) => err ? reject(err) : resolve(res));
+      });
+      packingAbcCache.clear();
+      abcData.forEach(row => {
+        if (row.product_id && row.level_id) {
+          packingAbcCache.set(row.product_id[0], (row.level_id[1] || 'D').charAt(0).toUpperCase());
+        }
+      });
+      console.log(`    ✅ ${packingAbcCache.size} clasificaciones ABC`);
+    } catch (e) {
+      console.log(`    ⚠️ No se pudo cargar ABC: ${e.message}`);
+    }
+
+    console.log('  📍 Descargando stock...');
+    const quants = await new Promise((resolve, reject) => {
+      models.methodCall('execute_kw', [
+        'blackdivision', uid, process.env.ODOO_PASSWORD,
+        'stock.quant', 'search_read',
+        [[['location_id.usage', '=', 'internal'], ['quantity', '>', 0]]],
+        { fields: ['product_id', 'location_id', 'quantity'], limit: 100000 }
+      ], (err, res) => err ? reject(err) : resolve(res));
+    });
+
+    packingStockCache.clear();
+    quants.forEach(q => {
+      if (q.product_id) {
+        const productId = q.product_id[0];
+        if (!packingStockCache.has(productId)) {
+          packingStockCache.set(productId, { total: 0, locations: [] });
+        }
+        const entry = packingStockCache.get(productId);
+        entry.total += q.quantity;
+        entry.locations.push({ id: q.location_id[0], name: q.location_id[1], qty: q.quantity });
+      }
+    });
+    console.log(`    ✅ ${packingStockCache.size} productos con stock`);
+
+    packingLastCacheUpdate = new Date();
+    console.log(`✅ [PACKING] Caché actualizada en ${((Date.now() - startTime) / 1000).toFixed(1)}s\n`);
+    return { products: packingProductCache.size, abc: packingAbcCache.size, stock: packingStockCache.size };
+  } catch (error) {
+    console.error('❌ [PACKING] Error actualizando caché:', error.message);
+    throw error;
+  }
+}
+
+async function parsePackingPDFWithAI(filePath) {
+  console.log('🧠 [PACKING-AI] Iniciando análisis inteligente del PDF...');
+  const tempScriptPath = path.join(__dirname, 'temp_extractor.py');
+  const absolutePath = path.resolve(filePath);
+  
+  const pythonScript = `
+import pdfplumber
+import json
+import sys
+import re
+
+pdf_path = sys.argv[1] if len(sys.argv) > 1 else ""
+result = {"raw_text": "", "tables": [], "container_candidates": []}
+
+try:
+    with pdfplumber.open(pdf_path) as pdf:
+        all_text = []
+        for page in pdf.pages:
+            text = page.extract_text() or ""
+            all_text.append(text)
+            tables = page.extract_tables()
+            for table in tables:
+                if table and len(table) > 0:
+                    clean_table = [[str(cell).strip() if cell else "" for cell in row] for row in table if row]
+                    if clean_table:
+                        result["tables"].append(clean_table)
+        result["raw_text"] = "\\n".join(all_text)
+        result["container_candidates"] = list(set(re.findall(r'[A-Z]{4}\\d{7}', result["raw_text"])))
+    print(json.dumps(result, ensure_ascii=False))
+except Exception as e:
+    print(json.dumps({"error": str(e)}))
+    sys.exit(1)
+`;
+
+  try {
+    await fs.writeFile(tempScriptPath, pythonScript, 'utf8');
+    const pythonExe = process.platform === 'win32' ? 'python' : 'python3';
+    const { stdout } = await execPromise(`"${pythonExe}" "${tempScriptPath}" "${absolutePath}"`, { maxBuffer: 50 * 1024 * 1024 });
+    await fs.unlink(tempScriptPath).catch(() => {});
+    
+    if (!stdout || stdout.trim() === '') throw new Error('No se pudo extraer contenido del PDF');
+    const extracted = JSON.parse(stdout);
+    if (extracted.error) throw new Error(extracted.error);
+
+    console.log(`  📄 Extraído: ${extracted.tables.length} tablas`);
+    console.log(`  🤖 Enviando a Claude para análisis...`);
+
+    let contentForAI = "";
+    extracted.tables.forEach((table, idx) => {
+      const tableStr = table.map(row => row.join(' | ')).join('\n');
+      if (tableStr.length < 10000) contentForAI += `\n--- TABLA ${idx + 1} ---\n${tableStr}\n`;
+    });
+    if (contentForAI.length < 500) contentForAI += `\n--- TEXTO ---\n${extracted.raw_text.substring(0, 8000)}`;
+    if (contentForAI.length > 15000) contentForAI = contentForAI.substring(0, 15000);
+
+    const anthropic = getAnthropicClient();
+    const aiResponse = await anthropic.messages.create({
+      model: "claude-3-haiku-20240307",
+      max_tokens: 4096,
+      system: `Eres un experto en logística analizando packing lists. Extrae REFERENCIAS y CANTIDADES.
+RESPONDE SOLO con JSON: {"container_number": "XXXX1234567 o null", "items": [{"reference": "CODIGO", "quantity": 100}], "total_units": 150, "confidence": "HIGH/MEDIUM/LOW"}`,
+      messages: [{ role: "user", content: `Extrae referencias y cantidades:\n${contentForAI}` }]
+    });
+
+    const aiText = aiResponse.content[0].text;
+    let parsedAI;
+    try {
+      const jsonMatch = aiText.match(/\{[\s\S]*\}/);
+      parsedAI = jsonMatch ? JSON.parse(jsonMatch[0]) : { items: [], confidence: "LOW" };
+    } catch {
+      parsedAI = { items: [], confidence: "LOW" };
+    }
+    
+    if (!parsedAI.container_number && extracted.container_candidates.length > 0) {
+      parsedAI.container_number = extracted.container_candidates[0];
+    }
+    
+    console.log(`  ✅ ${parsedAI.items?.length || 0} referencias encontradas`);
+    return parsedAI;
+  } catch (error) {
+    await fs.unlink(tempScriptPath).catch(() => {});
+    throw error;
+  }
+}
+
+function enrichPackingListAI(parsedData) {
+  const enriched = [];
+  const summary = { totalUnits: 0, byABC: { A: 0, B: 0, C: 0, D: 0, NEW: 0 }, newReferences: [], consolidationAlerts: [] };
+
+  if (!parsedData.items) return { items: enriched, summary };
+
+  const byReference = new Map();
+  parsedData.items.forEach(item => {
+    const ref = (item.reference || '').toUpperCase().trim();
+    if (!ref) return;
+    if (!byReference.has(ref)) byReference.set(ref, { reference: ref, totalUnits: 0 });
+    byReference.get(ref).totalUnits += item.quantity || 0;
+  });
+
+  byReference.forEach((refData, reference) => {
+    let productInfo = packingProductCache.get(reference);
+    if (!productInfo) {
+      const variants = [reference.replace(/-/g, ''), reference.split('-')[0]];
+      for (const v of variants) {
+        productInfo = packingProductCache.get(v.toUpperCase());
+        if (productInfo) break;
+      }
+    }
+
+    let abcClass = 'NEW', currentStock = 0, stockLocations = [], alerts = [];
+    
+    if (productInfo) {
+      abcClass = packingAbcCache.get(productInfo.id) || 'D';
+      const stock = packingStockCache.get(productInfo.id);
+      if (stock) { currentStock = stock.total; stockLocations = stock.locations; }
+      if (currentStock > 0) {
+        alerts.push({ type: 'consolidar', message: `Ya tiene ${currentStock} uds en stock` });
+        summary.consolidationAlerts.push({ itemNo: reference, currentStock, incomingUnits: refData.totalUnits });
+      }
+    } else {
+      alerts.push({ type: 'nuevo', message: '🆕 Nueva referencia' });
+      summary.newReferences.push(reference);
+    }
+
+    summary.byABC[abcClass] = (summary.byABC[abcClass] || 0) + refData.totalUnits;
+    summary.totalUnits += refData.totalUnits;
+
+    enriched.push({
+      itemNo: reference,
+      productName: productInfo?.name || 'Desconocido',
+      totalUnits: refData.totalUnits,
+      abcClass, currentStock,
+      stockLocations: stockLocations.slice(0, 3),
+      alerts
+    });
+  });
+
+  enriched.sort((a, b) => {
+    const order = { A: 1, B: 2, C: 3, D: 4, NEW: 5 };
+    return (order[a.abcClass] || 99) - (order[b.abcClass] || 99);
+  });
+
+  return { items: enriched, summary };
+}
+
+// ENDPOINTS PACKING
+app.get("/api/packing/health", (req, res) => {
+  res.json({
+    status: 'ok', version: '2.1-AI',
+    cache: { products: packingProductCache.size, abc: packingAbcCache.size, stock: packingStockCache.size, lastUpdate: packingLastCacheUpdate }
+  });
+});
+
+app.post("/api/packing/cache/refresh", async (req, res) => {
+  try {
+    const stats = await refreshPackingCache();
+    res.json({ success: true, stats });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/packing/analyze", packingUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
+    console.log(`\n📄 [PACKING] Analizando: ${req.file.originalname}`);
+
+    if (!packingLastCacheUpdate || (Date.now() - packingLastCacheUpdate.getTime()) > 3600000) {
+      try { await refreshPackingCache(); } catch (e) { console.warn('⚠️ Cache no actualizada'); }
+    }
+
+    const parsed = await parsePackingPDFWithAI(req.file.path);
+    const containerNumber = parsed.container_number || req.file.originalname.match(/[A-Z]{4}\d{7}/)?.[0] || 'UNKNOWN';
+    const enriched = enrichPackingListAI(parsed);
+
+    await fs.unlink(req.file.path).catch(() => {});
+    console.log(`✅ [PACKING] Completado: ${enriched.items.length} referencias\n`);
+
+    res.json({ success: true, containerNumber, summary: enriched.summary, items: enriched.items, aiPowered: true });
+  } catch (error) {
+    console.error('❌ [PACKING] Error:', error);
+    if (req.file) await fs.unlink(req.file.path).catch(() => {});
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/packing/download/:filename", (req, res) => {
+  res.download(path.join(__dirname, 'packing-outputs', req.params.filename));
+});
+
+// ==================================================================================
+//  SERVIDOR - INICIO
+// ==================================================================================
+server.listen(PORT, '0.0.0.0', () => console.log(` 🚀  CEREBRO CLAUDE + CFO IA + DEVOLUCIONES B2B + PACKING ACTIVO en ${PORT}`));
