@@ -1984,40 +1984,43 @@ except Exception as e:
       model: "claude-opus-4-20250514",
       max_tokens: 16384,
       stream: true,
-      system: `Eres un experto en logística de almacén especializado en analizar packing lists de contenedores marítimos para empresas de moda (calzado y gafas).
+      system: `Eres un experto en logística de almacén especializado en analizar packing lists de contenedores marítimos.
 
 ## TU MISIÓN
-Extraer con MÁXIMA PRECISIÓN todos los productos del documento, agrupando correctamente por referencia+color.
+Extraer CADA LÍNEA del documento como un item separado. NO AGRUPES líneas aunque tengan la misma referencia+color.
 
 ## ESTRUCTURA DE LOS PACKING LISTS
-Los documentos pueden tener diferentes formatos, pero típicamente contienen:
-- **Art. NO. / Item No**: Código del producto (ej: COSH244008, DFSH321085, DFKSUN0216)
-- **COLOUR / Color**: Color del producto (ej: BLACK, BURGUNDY, PEWTER)
-- **SIZE columns (25-46)**: Distribución por tallas
+Cada línea contiene:
+- **Art. NO. / Item No**: Código del producto (ej: COSH244008)
+- **COLOUR / Color**: Color del producto (ej: BLACK, BURGUNDY)
+- **SIZE columns (25-46)**: Distribución por tallas - los números indican unidades por talla
 - **PRS/CTN o PER CTN**: Pares por caja
-- **CTNS o TTL CTNS**: Número de cajas de esa línea
-- **PRS o TTL PRS o QTY**: Total de unidades de esa línea
+- **CTNS o TTL CTNS**: Número de cajas de ESA LÍNEA
+- **PRS o TTL PRS**: Total de unidades de ESA LÍNEA
 
 ## REGLAS CRÍTICAS
 
-### 1. NORMALIZACIÓN DE COLORES (MUY IMPORTANTE)
-Usar SIEMPRE estas abreviaturas de 4 letras:
+### 1. EXTRAER CADA LÍNEA INDIVIDUAL
+Aunque haya 50 líneas con COSH244008-BLACK, extrae las 50 como items separados.
+Cada línea tiene diferente surtido de tallas y diferentes cantidades.
+
+### 2. NORMALIZACIÓN DE COLORES
 BLACK → BLAC | WHITE → WHIT | BURGUNDY → BURG | BEIGE → BEIG
 BROWN → BROW | PEWTER → PEWT | GOLD → GOLD | SILVER → SILV
 LEOPARD → LEOP | OFFWHITE → OFFW | PINK → PINK | GREY → GREY
 
-### 2. REFERENCIA COMPLETA
-Siempre: código + guión + color normalizado
-COSH244008 + BLACK = "COSH244008-BLAC"
-COSH244011 + BURGUNDY = "COSH244011-BURG"
+### 3. REFERENCIA COMPLETA
+código + guión + color normalizado: COSH244008 + BLACK = "COSH244008-BLAC"
 
-### 3. AGRUPACIÓN Y SUMA
-Cada referencia+color puede aparecer en MÚLTIPLES LÍNEAS. SUMA todas las cantidades.
+### 4. SURTIDO DE TALLAS
+Detectar qué tallas tienen unidades en esa línea.
+Si columnas 25,26,27,28,29,30,31,32 tienen valores → sizeRange: "25-32"
+Si solo columnas 33,34 tienen valores → sizeRange: "33-34"
 
-### 4. DETECCIÓN DE TIPO
+### 5. DETECCIÓN DE TIPO
 - DFKSUN*, DFSU*: Gafas (50 uds/caja, 22 cajas/palet)
 - DFTXSOCO*: Calcetines (50 uds/caja, 50 cajas/palet)
-- DFSH*, BWSH*, BJSH*, COSH*, TESH*: Calzado
+- COSH*, DFSH*, BWSH*, BJSH*, TESH*: Calzado
   - Tallas 25-35: Infantil (28 cajas/palet)
   - Tallas 36-46: Adulto (14 cajas/palet)
 
@@ -2025,12 +2028,16 @@ Cada referencia+color puede aparecer en MÚLTIPLES LÍNEAS. SUMA todas las canti
 {
   "container_number": "MRKU0461515",
   "items": [
-    {"reference": "COSH244008-BLAC", "quantity": 1282, "cartons": 139, "sizeRange": "25-36", "minSize": 25, "productType": "FOOTWEAR_KIDS"}
+    {"reference": "COSH244008-BLAC", "quantity": 168, "cartons": 12, "sizeRange": "25-32", "minSize": 25, "prsPerCtn": 14},
+    {"reference": "COSH244008-BLAC", "quantity": 36, "cartons": 12, "sizeRange": "33-34", "minSize": 33, "prsPerCtn": 3},
+    {"reference": "COSH244008-BLAC", "quantity": 260, "cartons": 20, "sizeRange": "25-35", "minSize": 25, "prsPerCtn": 13}
   ],
   "total_units": 5244,
   "total_cartons": 498,
   "confidence": "HIGH"
-}`,
+}
+
+IMPORTANTE: Extrae TODAS las líneas del documento. Si hay 100 líneas, devuelve 100 items.`,
       messages: [{ role: "user", content: `Analiza este packing list:\n\n${contentForAI}` }]
     });
 
@@ -2075,8 +2082,8 @@ for await (const event of aiResponse) {
   }
 }
 
-/// ==================================================================================
-//  ENRIQUECIMIENTO CON ODOO (CON AGRUPACIÓN)
+// ==================================================================================
+//  ENRIQUECIMIENTO CON ODOO (LÍNEAS INDIVIDUALES + RESUMEN AGRUPADO)
 // ==================================================================================
 function enrichPackingListAI(parsedData) {
   const enriched = [];
@@ -2084,40 +2091,13 @@ function enrichPackingListAI(parsedData) {
     totalUnits: 0, totalBoxes: 0, totalPallets: 0,
     byABC: { A: 0, B: 0, C: 0, D: 0, NEW: 0 }, 
     byType: { SUNGLASSES: 0, SOCKS: 0, FOOTWEAR_ADULT: 0, FOOTWEAR_KIDS: 0, UNKNOWN: 0 },
-    newReferences: [], consolidationAlerts: [] 
+    newReferences: [], consolidationAlerts: [],
+    groupedTotals: []
   };
 
   if (!parsedData.items || parsedData.items.length === 0) return { items: enriched, summary };
 
-  // ========== PASO 1: AGRUPAR POR REFERENCIA+COLOR ==========
-  const groupedByRef = new Map();
-  
-  parsedData.items.forEach(item => {
-    const ref = (item.reference || '').toUpperCase().trim();
-    if (!ref) return;
-    
-    if (!groupedByRef.has(ref)) {
-      groupedByRef.set(ref, {
-        reference: ref,
-        totalUnits: 0,
-        totalCartons: 0,
-        minSize: item.minSize || 36,
-        sizeRange: item.sizeRange || null,
-        productType: item.productType || null
-      });
-    }
-    
-    const group = groupedByRef.get(ref);
-    group.totalUnits += item.quantity || 0;
-    group.totalCartons += item.cartons || 0;
-    if (item.minSize && item.minSize < group.minSize) group.minSize = item.minSize;
-    if (item.sizeRange) group.sizeRange = item.sizeRange;
-    if (item.productType) group.productType = item.productType;
-  });
-
-  console.log(`  📊 Agrupadas ${parsedData.items.length} líneas en ${groupedByRef.size} referencias únicas`);
-
-  // ========== PASO 2: FUNCIONES AUXILIARES ==========
+  // ========== FUNCIONES AUXILIARES ==========
   function getPackingRules(reference, minSize, productType) {
     const ref = (reference || '').toUpperCase();
     
@@ -2151,17 +2131,21 @@ function enrichPackingListAI(parsedData) {
         return value;
       }
     }
-    
     return null;
   }
 
-  // ========== PASO 3: ENRIQUECER CADA REFERENCIA AGRUPADA ==========
-  groupedByRef.forEach((group, reference) => {
-    const rules = getPackingRules(reference, group.minSize, group.productType);
+  // ========== PASO 1: PROCESAR CADA LÍNEA INDIVIDUAL ==========
+  const groupedTotals = new Map();
+
+  parsedData.items.forEach((item, index) => {
+    const reference = (item.reference || '').toUpperCase().trim();
+    if (!reference) return;
+
+    const rules = getPackingRules(reference, item.minSize, item.productType);
     
-    let totalBoxes = group.totalCartons;
-    if (!totalBoxes && rules.udsPerBox && group.totalUnits) {
-      totalBoxes = Math.ceil(group.totalUnits / rules.udsPerBox);
+    let totalBoxes = item.cartons || 0;
+    if (!totalBoxes && rules.udsPerBox && item.quantity) {
+      totalBoxes = Math.ceil(item.quantity / rules.udsPerBox);
     }
     
     let totalPallets = totalBoxes && rules.boxesPerPallet ? totalBoxes / rules.boxesPerPallet : 0;
@@ -2171,7 +2155,6 @@ function enrichPackingListAI(parsedData) {
     let abcClass = 'NEW';
     let currentStock = 0;
     let stockLocations = [];
-    let alerts = [];
     
     if (productInfo) {
       abcClass = packingAbcCache.get(productInfo.id) || 'D';
@@ -2183,56 +2166,90 @@ function enrichPackingListAI(parsedData) {
           qty: loc.qty || loc.quantity || 0
         })).filter(loc => loc.qty > 0);
       }
-      if (currentStock > 0) {
-        const locNames = stockLocations.slice(0, 3).map(l => l.location).join(', ');
-        alerts.push({ 
-          type: 'consolidar', 
-          message: `⚠️ Stock: ${currentStock} uds en ${stockLocations.length} ubic. (${locNames}${stockLocations.length > 3 ? '...' : ''})` 
-        });
-        summary.consolidationAlerts.push({ 
-          itemNo: reference, 
-          currentStock, 
-          incomingUnits: group.totalUnits, 
-          locations: stockLocations 
-        });
-      }
-    } else {
-      alerts.push({ type: 'nuevo', message: '🆕 Nueva referencia - No existe en Odoo' });
-      summary.newReferences.push(reference);
     }
 
-    summary.byABC[abcClass] = (summary.byABC[abcClass] || 0) + group.totalUnits;
-    summary.byType[rules.type] = (summary.byType[rules.type] || 0) + group.totalUnits;
-    summary.totalUnits += group.totalUnits;
-    summary.totalBoxes += totalBoxes || 0;
+    // Acumular para resumen agrupado
+    if (!groupedTotals.has(reference)) {
+      groupedTotals.set(reference, { 
+        reference, totalUnits: 0, totalBoxes: 0, 
+        productName: productInfo?.name || 'No encontrado',
+        abcClass, currentStock, stockLocations,
+        productType: rules.type,
+        boxesPerPallet: rules.boxesPerPallet,
+        lines: 0
+      });
+    }
+    const grouped = groupedTotals.get(reference);
+    grouped.totalUnits += item.quantity || 0;
+    grouped.totalBoxes += totalBoxes;
+    grouped.lines++;
+
+    // Actualizar totales generales
+    const qty = item.quantity || 0;
+    summary.byABC[abcClass] = (summary.byABC[abcClass] || 0) + qty;
+    summary.byType[rules.type] = (summary.byType[rules.type] || 0) + qty;
+    summary.totalUnits += qty;
+    summary.totalBoxes += totalBoxes;
     summary.totalPallets += totalPallets;
 
+    // Añadir línea individual
     enriched.push({
+      lineNumber: index + 1,
       itemNo: reference,
       productName: productInfo?.name || 'No encontrado en Odoo',
-      totalUnits: group.totalUnits,
-      totalBoxes: totalBoxes || 0,
+      sizeRange: item.sizeRange || '-',
+      prsPerCtn: item.prsPerCtn || '-',
+      totalUnits: qty,
+      totalBoxes: totalBoxes,
       totalPallets: Math.round(totalPallets * 100) / 100,
       productType: rules.type,
       boxesPerPallet: rules.boxesPerPallet,
-      sizeRange: group.sizeRange,
       abcClass,
       currentStock,
-      stockLocations: stockLocations.slice(0, 5),
-      alerts
+      stockLocations: stockLocations.slice(0, 5)
     });
+  });
+
+  // ========== PASO 2: GENERAR RESUMEN AGRUPADO ==========
+  groupedTotals.forEach((data, reference) => {
+    const pallets = data.totalBoxes / data.boxesPerPallet;
+    
+    summary.groupedTotals.push({
+      reference: data.reference,
+      productName: data.productName,
+      totalUnits: data.totalUnits,
+      totalBoxes: data.totalBoxes,
+      totalPallets: Math.round(pallets * 100) / 100,
+      lines: data.lines,
+      abcClass: data.abcClass,
+      currentStock: data.currentStock,
+      stockLocations: data.stockLocations
+    });
+
+    if (data.currentStock > 0) {
+      const locNames = data.stockLocations.slice(0, 3).map(l => l.location).join(', ');
+      summary.consolidationAlerts.push({ 
+        itemNo: reference, 
+        currentStock: data.currentStock, 
+        incomingUnits: data.totalUnits,
+        message: `⚠️ Stock: ${data.currentStock} uds en ${data.stockLocations.length} ubic. (${locNames})`
+      });
+    }
+
+    if (data.abcClass === 'NEW') {
+      summary.newReferences.push(reference);
+    }
   });
 
   summary.totalPallets = Math.round(summary.totalPallets * 100) / 100;
 
+  // Ordenar por referencia y luego por número de línea
   enriched.sort((a, b) => {
-    if (a.currentStock > 0 && b.currentStock === 0) return -1;
-    if (b.currentStock > 0 && a.currentStock === 0) return 1;
-    const order = { A: 1, B: 2, C: 3, D: 4, NEW: 5 };
-    return (order[a.abcClass] || 99) - (order[b.abcClass] || 99);
+    if (a.itemNo !== b.itemNo) return a.itemNo.localeCompare(b.itemNo);
+    return a.lineNumber - b.lineNumber;
   });
 
-  console.log(`  ✅ Enriquecidas ${enriched.length} referencias`);
+  console.log(`  📊 ${parsedData.items.length} líneas procesadas → ${groupedTotals.size} referencias únicas`);
   console.log(`  📦 Total: ${summary.totalUnits} uds, ${summary.totalBoxes} cajas, ${summary.totalPallets} palets`);
 
   return { items: enriched, summary };
@@ -2243,7 +2260,7 @@ function enrichPackingListAI(parsedData) {
 // ==================================================================================
 app.get("/api/packing/health", (req, res) => {
   res.json({
-    status: 'ok', version: '3.1-OPUS',
+    status: 'ok', version: '3.2-OPUS',
     cache: { products: packingProductCache.size, abc: packingAbcCache.size, stock: packingStockCache.size, lastUpdate: packingLastCacheUpdate }
   });
 });
@@ -2260,7 +2277,7 @@ app.post("/api/packing/cache/refresh", async (req, res) => {
 app.post("/api/packing/analyze", packingUpload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
-    console.log(`\n📄 [PACKING v3.1] Analizando: ${req.file.originalname}`);
+    console.log(`\n📄 [PACKING v3.2] Analizando: ${req.file.originalname}`);
 
     if (!packingLastCacheUpdate || (Date.now() - packingLastCacheUpdate.getTime()) > 3600000) {
       try { await refreshPackingCache(); } catch (e) { console.warn('⚠️ Cache no actualizada'); }
@@ -2271,9 +2288,17 @@ app.post("/api/packing/analyze", packingUpload.single('file'), async (req, res) 
     const enriched = enrichPackingListAI(parsed);
 
     await fs.unlink(req.file.path).catch(() => {});
-    console.log(`✅ [PACKING] Completado: ${enriched.items.length} referencias\n`);
+    console.log(`✅ [PACKING] Completado: ${enriched.items.length} líneas, ${enriched.summary.groupedTotals.length} referencias\n`);
 
-    res.json({ success: true, containerNumber, summary: enriched.summary, items: enriched.items, aiPowered: true, model: 'opus-4.5' });
+    res.json({ 
+      success: true, 
+      containerNumber, 
+      summary: enriched.summary, 
+      items: enriched.items,
+      groupedTotals: enriched.summary.groupedTotals,
+      aiPowered: true, 
+      model: 'opus-4.5' 
+    });
   } catch (error) {
     console.error('❌ [PACKING] Error:', error);
     if (req.file) await fs.unlink(req.file.path).catch(() => {});
@@ -2288,4 +2313,4 @@ app.get("/api/packing/download/:filename", (req, res) => {
 // ==================================================================================
 //  SERVIDOR - INICIO
 // ==================================================================================
-server.listen(PORT, '0.0.0.0', () => console.log(` 🚀  CEREBRO CLAUDE + CFO IA + DEVOLUCIONES B2B + PACKING v3.1 OPUS en ${PORT}`));
+server.listen(PORT, '0.0.0.0', () => console.log(` 🚀  CEREBRO CLAUDE + CFO IA + DEVOLUCIONES B2B + PACKING v3.2 OPUS en ${PORT}`));
