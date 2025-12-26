@@ -2075,8 +2075,8 @@ for await (const event of aiResponse) {
   }
 }
 
-// ==================================================================================
-//  ENRIQUECIMIENTO CON ODOO
+/// ==================================================================================
+//  ENRIQUECIMIENTO CON ODOO (CON AGRUPACIÓN)
 // ==================================================================================
 function enrichPackingListAI(parsedData) {
   const enriched = [];
@@ -2089,6 +2089,35 @@ function enrichPackingListAI(parsedData) {
 
   if (!parsedData.items || parsedData.items.length === 0) return { items: enriched, summary };
 
+  // ========== PASO 1: AGRUPAR POR REFERENCIA+COLOR ==========
+  const groupedByRef = new Map();
+  
+  parsedData.items.forEach(item => {
+    const ref = (item.reference || '').toUpperCase().trim();
+    if (!ref) return;
+    
+    if (!groupedByRef.has(ref)) {
+      groupedByRef.set(ref, {
+        reference: ref,
+        totalUnits: 0,
+        totalCartons: 0,
+        minSize: item.minSize || 36,
+        sizeRange: item.sizeRange || null,
+        productType: item.productType || null
+      });
+    }
+    
+    const group = groupedByRef.get(ref);
+    group.totalUnits += item.quantity || 0;
+    group.totalCartons += item.cartons || 0;
+    if (item.minSize && item.minSize < group.minSize) group.minSize = item.minSize;
+    if (item.sizeRange) group.sizeRange = item.sizeRange;
+    if (item.productType) group.productType = item.productType;
+  });
+
+  console.log(`  📊 Agrupadas ${parsedData.items.length} líneas en ${groupedByRef.size} referencias únicas`);
+
+  // ========== PASO 2: FUNCIONES AUXILIARES ==========
   function getPackingRules(reference, minSize, productType) {
     const ref = (reference || '').toUpperCase();
     
@@ -2107,20 +2136,16 @@ function enrichPackingListAI(parsedData) {
   }
 
   function findProductInOdoo(reference) {
-    // Intento 1: Exacto
     let product = packingProductCache.get(reference);
     if (product) return product;
     
-    // Intento 2: Sin guiones
     product = packingProductCache.get(reference.replace(/-/g, ''));
     if (product) return product;
     
-    // Intento 3: Código base
     const baseCode = reference.split('-')[0];
     product = packingProductCache.get(baseCode);
     if (product) return product;
     
-    // Intento 4: Búsqueda parcial
     for (const [key, value] of packingProductCache.entries()) {
       if (key.includes(baseCode) || key.includes(reference.replace(/-/g, ''))) {
         return value;
@@ -2130,56 +2155,69 @@ function enrichPackingListAI(parsedData) {
     return null;
   }
 
-  parsedData.items.forEach(item => {
-    const reference = (item.reference || '').toUpperCase().trim();
-    if (!reference) return;
-
-    const rules = getPackingRules(reference, item.minSize, item.productType);
+  // ========== PASO 3: ENRIQUECER CADA REFERENCIA AGRUPADA ==========
+  groupedByRef.forEach((group, reference) => {
+    const rules = getPackingRules(reference, group.minSize, group.productType);
     
-    let totalBoxes = item.cartons || 0;
-    if (!totalBoxes && rules.udsPerBox && item.quantity) {
-      totalBoxes = Math.ceil(item.quantity / rules.udsPerBox);
+    let totalBoxes = group.totalCartons;
+    if (!totalBoxes && rules.udsPerBox && group.totalUnits) {
+      totalBoxes = Math.ceil(group.totalUnits / rules.udsPerBox);
     }
     
     let totalPallets = totalBoxes && rules.boxesPerPallet ? totalBoxes / rules.boxesPerPallet : 0;
 
     const productInfo = findProductInOdoo(reference);
     
-    let abcClass = 'NEW', currentStock = 0, stockLocations = [], alerts = [];
+    let abcClass = 'NEW';
+    let currentStock = 0;
+    let stockLocations = [];
+    let alerts = [];
     
     if (productInfo) {
       abcClass = packingAbcCache.get(productInfo.id) || 'D';
       const stock = packingStockCache.get(productInfo.id);
       if (stock) { 
         currentStock = stock.total; 
-        stockLocations = stock.locations.map(loc => ({ name: loc.name, qty: loc.qty }));
+        stockLocations = (stock.locations || []).map(loc => ({
+          location: loc.name || loc.location || 'Desconocida',
+          qty: loc.qty || loc.quantity || 0
+        })).filter(loc => loc.qty > 0);
       }
       if (currentStock > 0) {
-        alerts.push({ type: 'consolidar', message: `⚠️ Stock actual: ${currentStock} uds en ${stockLocations.length} ubicaciones` });
-        summary.consolidationAlerts.push({ itemNo: reference, currentStock, incomingUnits: item.quantity, locations: stockLocations.slice(0, 5) });
+        const locNames = stockLocations.slice(0, 3).map(l => l.location).join(', ');
+        alerts.push({ 
+          type: 'consolidar', 
+          message: `⚠️ Stock: ${currentStock} uds en ${stockLocations.length} ubic. (${locNames}${stockLocations.length > 3 ? '...' : ''})` 
+        });
+        summary.consolidationAlerts.push({ 
+          itemNo: reference, 
+          currentStock, 
+          incomingUnits: group.totalUnits, 
+          locations: stockLocations 
+        });
       }
     } else {
-      alerts.push({ type: 'nuevo', message: '🆕 Nueva referencia' });
+      alerts.push({ type: 'nuevo', message: '🆕 Nueva referencia - No existe en Odoo' });
       summary.newReferences.push(reference);
     }
 
-    const qty = item.quantity || 0;
-    summary.byABC[abcClass] = (summary.byABC[abcClass] || 0) + qty;
-    summary.byType[rules.type] = (summary.byType[rules.type] || 0) + qty;
-    summary.totalUnits += qty;
-    summary.totalBoxes += totalBoxes;
+    summary.byABC[abcClass] = (summary.byABC[abcClass] || 0) + group.totalUnits;
+    summary.byType[rules.type] = (summary.byType[rules.type] || 0) + group.totalUnits;
+    summary.totalUnits += group.totalUnits;
+    summary.totalBoxes += totalBoxes || 0;
     summary.totalPallets += totalPallets;
 
     enriched.push({
       itemNo: reference,
       productName: productInfo?.name || 'No encontrado en Odoo',
-      totalUnits: qty,
-      totalBoxes,
+      totalUnits: group.totalUnits,
+      totalBoxes: totalBoxes || 0,
       totalPallets: Math.round(totalPallets * 100) / 100,
       productType: rules.type,
       boxesPerPallet: rules.boxesPerPallet,
-      sizeRange: item.sizeRange || null,
-      abcClass, currentStock,
+      sizeRange: group.sizeRange,
+      abcClass,
+      currentStock,
       stockLocations: stockLocations.slice(0, 5),
       alerts
     });
@@ -2194,6 +2232,9 @@ function enrichPackingListAI(parsedData) {
     return (order[a.abcClass] || 99) - (order[b.abcClass] || 99);
   });
 
+  console.log(`  ✅ Enriquecidas ${enriched.length} referencias`);
+  console.log(`  📦 Total: ${summary.totalUnits} uds, ${summary.totalBoxes} cajas, ${summary.totalPallets} palets`);
+
   return { items: enriched, summary };
 }
 
@@ -2202,7 +2243,7 @@ function enrichPackingListAI(parsedData) {
 // ==================================================================================
 app.get("/api/packing/health", (req, res) => {
   res.json({
-    status: 'ok', version: '3.0-OPUS',
+    status: 'ok', version: '3.1-OPUS',
     cache: { products: packingProductCache.size, abc: packingAbcCache.size, stock: packingStockCache.size, lastUpdate: packingLastCacheUpdate }
   });
 });
@@ -2219,7 +2260,7 @@ app.post("/api/packing/cache/refresh", async (req, res) => {
 app.post("/api/packing/analyze", packingUpload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
-    console.log(`\n📄 [PACKING v3.0] Analizando: ${req.file.originalname}`);
+    console.log(`\n📄 [PACKING v3.1] Analizando: ${req.file.originalname}`);
 
     if (!packingLastCacheUpdate || (Date.now() - packingLastCacheUpdate.getTime()) > 3600000) {
       try { await refreshPackingCache(); } catch (e) { console.warn('⚠️ Cache no actualizada'); }
@@ -2247,4 +2288,4 @@ app.get("/api/packing/download/:filename", (req, res) => {
 // ==================================================================================
 //  SERVIDOR - INICIO
 // ==================================================================================
-server.listen(PORT, '0.0.0.0', () => console.log(` 🚀  CEREBRO CLAUDE + CFO IA + DEVOLUCIONES B2B + PACKING v3.0 OPUS en ${PORT}`));
+server.listen(PORT, '0.0.0.0', () => console.log(` 🚀  CEREBRO CLAUDE + CFO IA + DEVOLUCIONES B2B + PACKING v3.1 OPUS en ${PORT}`));
