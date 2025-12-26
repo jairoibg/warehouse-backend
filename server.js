@@ -1983,6 +1983,7 @@ except Exception as e:
     const aiResponse = await anthropic.messages.create({
       model: "claude-opus-4-20250514",
       max_tokens: 16384,
+      stream: true,
       system: `Eres un experto en logística de almacén especializado en analizar packing lists de contenedores marítimos para empresas de moda (calzado y gafas).
 
 ## TU MISIÓN
@@ -2033,7 +2034,12 @@ Cada referencia+color puede aparecer en MÚLTIPLES LÍNEAS. SUMA todas las canti
       messages: [{ role: "user", content: `Analiza este packing list:\n\n${contentForAI}` }]
     });
 
-    const aiText = aiResponse.content[0].text;
+    let aiText = '';
+for await (const event of aiResponse) {
+  if (event.type === 'content_block_delta' && event.delta?.text) {
+    aiText += event.delta.text;
+  }
+}
     let parsedAI;
     try {
       const jsonMatch = aiText.match(/\{[\s\S]*\}/);
