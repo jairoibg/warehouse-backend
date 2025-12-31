@@ -1,199 +1,974 @@
-/**
- * SERVIDOR PRINCIPAL - VERSIÓN REFACTORIZADA
- * Estructura modular y limpia
- */
-
-import 'dotenv/config';
 import express from "express";
 import cors from "cors";
-import compression from "compression";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
+import fs from "fs/promises";
+import fsSync from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { validateEnv, getConfig } from "./src/config/env.js";
-import { errorHandler, asyncHandler } from "./src/middleware/errorHandler.js";
-import { logger } from "./src/middleware/logger.js";
-import fs from "fs/promises";
+import { syncWithOdoo, getRealTimeSales } from "./sync_odoo.js";
+import OpenAI from "openai";
+import multer from "multer";
+import xmlrpc from "xmlrpc";
+import crypto from "crypto";
+import { exec } from "child_process";
+import { promisify } from "util";
+import { packingIntelligence } from "./packing_intelligence.js";
 
-// Importar rutas modulares
-import locationsRoutes from "./src/routes/locations.routes.js";
-import { getLocationMovements } from "./src/routes/locations.routes.js";
-import aiRoutes from "./src/routes/ai.routes.js";
-import analyticsRoutes from "./src/routes/analytics.routes.js";
-import dashboardRoutes from "./src/routes/dashboard.routes.js";
-import devolucionesRoutes from "./src/routes/devoluciones.routes.js";
-import explainRoutes from "./src/routes/explain.routes.js";
-import packingRoutes from "./src/routes/packing.routes.js";
-import reportsRoutes from "./src/routes/reports.routes.js";
-import historyRoutes from "./src/routes/history.routes.js";
-import advancedRoutes from "./src/routes/advanced.routes.js";
-import notificationsRoutes from "./src/routes/notifications.routes.js";
-import workflowsRoutes from "./src/routes/workflows.routes.js";
-import rolesRoutes from "./src/routes/roles.routes.js";
-import integrationsRoutes from "./src/routes/integrations.routes.js";
-import mlRoutes from "./src/routes/ml.routes.js";
-
-// Importar servicios
-import { syncWithOdoo } from "./sync_odoo.js";
-import { startHistoryCollection } from "./src/services/historyService.js";
-import { startNotificationScheduler } from "./src/services/notificationService.js";
+const execPromise = promisify(exec);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // ==================================================================================
-//  VALIDACIÓN Y CONFIGURACIÓN
+//  CONFIGURACIÓN GENERAL
 // ==================================================================================
-try {
-  validateEnv();
-} catch (error) {
-  logger.error('Error en validación de entorno', { error: error.message });
-  process.exit(1);
+const PORT = 4000;
+const SERVER_HOST = "localhost"; // Cambia a tu IP si accedes desde fuera
+
+const EXPORT_DIR = path.join(__dirname, "exports");
+// Crear carpeta si no existe
+if (!fsSync.existsSync(EXPORT_DIR)) {
+  fsSync.mkdirSync(EXPORT_DIR);
 }
 
-const config = getConfig();
-const PORT = config.server.port;
-const SERVER_HOST = config.server.host;
+// ==================================================================================
+//  CLIENTE OPENAI - GPT
+// ==================================================================================
+let _openaiClient = null;
 
-// ==================================================================================
-//  CONFIGURACIÓN DEL SERVIDOR EXPRESS
-// ==================================================================================
+function getOpenAIClient() {
+  if (!_openaiClient) {
+    const apiKey = process.env.OPENAI_API_KEY || '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';
+    _openaiClient = new OpenAI({ apiKey });
+    console.log("✅ Cliente OpenAI inicializado correctamente");
+  }
+  return _openaiClient;
+}
 const app = express();
-
-// Compresión gzip para reducir el tamaño de las respuestas (mejora velocidad de carga)
-app.use(compression());
-
 app.use(cors());
 app.use(express.json());
-
-// Directorio de exports
-const EXPORT_DIR = path.join(__dirname, "exports");
-import fsSync from "fs";
-if (!fsSync.existsSync(EXPORT_DIR)) {
-  fsSync.mkdirSync(EXPORT_DIR, { recursive: true });
-}
+// Servir archivos estáticos para descargas
 app.use("/downloads", express.static(EXPORT_DIR));
 
-// ==================================================================================
-//  RUTA DE SALUD (health check)
-// ==================================================================================
-app.get("/health", (req, res) => {
-  res.json({ 
-    status: "ok", 
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime()
-  });
-});
+let movements = []; 
 
 // ==================================================================================
-//  RUTAS MODULARES
+//  MÓDULO 1: GENERADOR DE EXCEL (CSV) - FORMATO INGENIERO
 // ==================================================================================
-app.use("/api/locations", locationsRoutes);
-app.use("/api/ai", aiRoutes);
-app.use("/api/analytics", analyticsRoutes);
-app.use("/api/dashboard", dashboardRoutes);
-app.use("/api/devoluciones", devolucionesRoutes);
-app.use("/api/explain", explainRoutes);
-app.use("/api/packing", packingRoutes);
-app.use("/api/reports", reportsRoutes);
-app.use("/api/history", historyRoutes);
-app.use("/api/advanced", advancedRoutes);
-app.use("/api/notifications", notificationsRoutes);
-app.use("/api/workflows", workflowsRoutes);
-app.use("/api/roles", rolesRoutes);
-app.use("/api/integrations", integrationsRoutes);
-app.use("/api/ml", mlRoutes);
+function generateCSV(data, searchTerm = "", hidePrices = false) {
+  // Cabecera dinámica con todas las columnas necesarias
+  let header = "ID_UBICACION;MARCA;TEMPORADAS;STOCK_TOTAL_UBICACION";
+  
+  if (!hidePrices) header += ";VALOR_STOCK_€"; 
+  
+  header += ";CLASES_ABC;DIAS_MAX;OCUPACION_%";
+  
+  if (searchTerm) header += ";STOCK_EXACTO_BUSQUEDA"; 
+  
+  // Columnas de desglose de contenido
+  header += ";PRODUCTOS_A;PRODUCTOS_B;PRODUCTOS_C;PRODUCTOS_D\n";
 
-// ==================================================================================
-//  RUTAS DE COMPATIBILIDAD (mantener endpoints antiguos para el frontend)
-// ==================================================================================
-// Compatibilidad: /api/strategic-analysis -> /api/ai/strategic-analysis
-app.post("/api/strategic-analysis", asyncHandler(async (req, res) => {
-  req.url = '/strategic-analysis';
-  req.baseUrl = '/api/ai';
-  return aiRoutes.handle(req, res);
-}));
+  const rows = data.map(loc => {
+    const classes = [...new Set(loc.packages.map(p => p.abcClass))].join("+");
+    const seasons = [...new Set(loc.packages.map(p => p.season || "N/A"))].join("+");
+    const maxDays = Math.max(...loc.packages.map(p => p.daysOld || 0));
+    const vol = Math.round(loc.occupancyPercentage || 0);
+    
+    // Cálculo de valor (solo si no es privado)
+    const locValue = !hidePrices 
+      ? loc.packages.reduce((sum, p) => sum + ((p.qty || 0) * (p.cost || 0)), 0).toFixed(2) 
+      : "";
 
-// Compatibilidad: /api/strategic-chat -> /api/ai/strategic-chat
-app.post("/api/strategic-chat", asyncHandler(async (req, res) => {
-  req.url = '/strategic-chat';
-  req.baseUrl = '/api/ai';
-  return aiRoutes.handle(req, res);
-}));
+    // Formateador de paquetes para las celdas de detalle
+    const formatPack = (p) => `[${p.productCode}] ${p.qty}u (${p.season}) ${p.daysOld}d`;
 
-// Compatibilidad: /api/movements -> /api/locations/movements
-app.get("/api/movements", asyncHandler(async (req, res) => {
-  req.url = '/movements';
-  req.baseUrl = '/api/locations';
-  return locationsRoutes.handle(req, res);
-}));
+    const prodA = loc.packages.filter(p => p.abcClass === 'A').map(formatPack).join(" | ");
+    const prodB = loc.packages.filter(p => p.abcClass === 'B').map(formatPack).join(" | ");
+    const prodC = loc.packages.filter(p => p.abcClass === 'C').map(formatPack).join(" | ");
+    const prodD = loc.packages.filter(p => p.abcClass === 'D' || !p.abcClass).map(formatPack).join(" | ");
+    
+    let row = `${loc.id};${loc.brand};${seasons};${loc.totalStock}`;
+    
+    if (!hidePrices) row += `;${locValue}`;
+    
+    row += `;${classes};${maxDays};${vol}`;
+    
+    if (searchTerm) row += `;${loc.matchQty || 0}`;
+    
+    row += `;${prodA};${prodB};${prodC};${prodD}`;
+    return row;
+  }).join("\n");
 
-// Compatibilidad: /api/movements/:locationId -> /api/locations/movements/:locationId
-app.get("/api/movements/:locationId", asyncHandler(getLocationMovements));
-
-// ==================================================================================
-//  WEBSOCKET PARA ACTUALIZACIONES EN TIEMPO REAL
-// ==================================================================================
-const server = createServer(app);
-const wss = new WebSocketServer({ server });
-
-function broadcastUpdate(data) {
-  wss.clients.forEach(c => { 
-    if (c.readyState === 1) {
-      c.send(JSON.stringify({ type: "UPDATE_LOCATIONS", payload: data }));
-    }
-  });
+  return header + rows;
 }
 
-wss.on("connection", () => {
-  logger.info("WebSocket conectado");
+// ==================================================================================
+//  MÓDULO 2: MOTOR DE INGENIERÍA (AGREGACIÓN + FILTROS + COPILOT)
+// ==================================================================================
+async function queryWarehouseData(locations, filters) {
+  console.log(" ⚙️  [MOTOR] Procesando Filtros Avanzados:", filters);
+
+  // 1. FILTRADO DE UBICACIONES (Nivel Macro)
+  let results = locations.filter(loc => {
+    // Estado
+    if (filters.status === "EMPTY" && (loc.totalStock || 0) > 0) return false;
+    if (filters.status === "OCCUPIED" && (loc.totalStock || 0) === 0) return false;
+    
+    // Marca
+    if (filters.brand && filters.brand !== "ALL") { 
+        if (!loc.id.includes(filters.brand)) return false; 
+    }
+    
+    // Antigüedad
+    if (filters.min_days_old) { 
+        if (!loc.packages || !loc.packages.some(p => p.daysOld >= filters.min_days_old)) return false; 
+    }
+    
+    // ABC (Si la ubicación contiene AL MENOS un producto de esa clase)
+    if (filters.abc_class) { 
+        if (!loc.packages || !loc.packages.some(p => p.abcClass === filters.abc_class)) return false; 
+    }
+    
+    // TEMPORADA
+    if (filters.season) {
+        // Si la ubicación no tiene NINGÚN paquete de esa temporada, fuera
+        if (!loc.packages || !loc.packages.some(p => p.season === filters.season)) return false;
+    }
+
+    // Búsqueda Texto
+    if (filters.search_text) {
+      const q = filters.search_text.toLowerCase();
+      const contentStr = JSON.stringify(loc.packages).toLowerCase();
+      if (!contentStr.includes(q) && !loc.id.toLowerCase().includes(q)) return false;
+    }
+    
+    // Velocidad (Slotting)
+    if (filters.min_velocity) {
+        if ((loc.velocityScore || 0) < filters.min_velocity) return false;
+    }
+
+    return true;
+  });
+
+  // Auditoría de Mezclas (Ingeniería)
+  if (filters.check_mixing_a_d) {
+    results = results.filter(loc => {
+      if (!loc.packages) return false;
+      const classes = loc.packages.map(p => p.abcClass || "D");
+      // Solo pasa si tiene A Y TAMBIÉN (D o C)
+      return classes.includes("A") && (classes.includes("D") || classes.includes("C"));
+    });
+  }
+
+  // 2. AGREGACIÓN MATEMÁTICA POR PRODUCTO (Nivel Micro - EL CEREBRO)
+  // Este es el bloque que cuenta unidades exactas para evitar alucinaciones.
+  const productAggregator = {};
+  let totalValueSelection = 0;
+
+  results.forEach(loc => {
+      if (!loc.packages) return;
+      
+      let matchQtyLoc = 0; // Contador para la ubicación actual
+      
+      loc.packages.forEach(pkg => {
+          // Aplicamos los filtros también al paquete individual para sumar solo lo que toca
+          if (filters.abc_class && pkg.abcClass !== filters.abc_class) return;
+          if (filters.season && pkg.season !== filters.season) return;
+          
+          if (filters.search_text) {
+              const str = (pkg.surtido || "" + pkg.productCode).toLowerCase();
+              if (!str.includes(filters.search_text.toLowerCase())) return;
+          }
+
+          // Datos del paquete
+          const ref = pkg.surtido || pkg.productCode || "SIN_REF";
+          const qty = pkg.qty || 0;
+          const cost = pkg.cost || 0;
+          const vel = pkg.velocity || 0;
+          const seas = pkg.season || "N/A";
+
+          // Agregamos al mapa global de productos
+          if (!productAggregator[ref]) {
+              productAggregator[ref] = { 
+                  ref, 
+                  total_qty: 0, 
+                  total_val: 0, 
+                  velocity: vel,
+                  season: seas,
+                  abc: pkg.abcClass
+              };
+          }
+          
+          productAggregator[ref].total_qty += qty;
+          
+          if (!filters.hide_prices) {
+            productAggregator[ref].total_val += (qty * cost);
+            totalValueSelection += (qty * cost);
+          }
+          
+          matchQtyLoc += qty;
+      });
+      
+      // Guardamos el dato exacto en la ubicación para el Excel
+      loc.matchQty = matchQtyLoc;
+  });
+
+  // 3. CONSTRUIR EL CHIVATO PARA LA IA (TOP PRODUCTOS)
+  const topProductsList = Object.values(productAggregator).map(p => {
+      let coverage = "Infinito";
+      if (p.velocity > 0) coverage = Math.round(p.total_qty / p.velocity) + " días";
+      else if (p.total_qty > 0) coverage = "Sin ventas (Riesgo)";
+      
+      // Limpieza por privacidad
+      if (filters.hide_prices) delete p.total_val;
+      
+      return { ...p, coverage };
+  });
+
+  // Ordenamos por cantidad total (Lo que más hay, primero)
+  topProductsList.sort((a, b) => b.total_qty - a.total_qty);
+
+  // Ordenamos también las ubicaciones para que el Excel salga ordenado
+  results.sort((a, b) => b.matchQty - a.matchQty);
+
+  // 4. PREPARAR RESPUESTA
+  const totalCount = results.length; // Ubicaciones encontradas
+  const totalStockFiltered = topProductsList.reduce((acc, p) => acc + p.total_qty, 0); // Suma real de productos
+
+  // Extraemos la lista de IDs para el Mapa Copilot (Iluminación)
+  const foundIds = results.map(r => r.id);
+
+  const response = {
+      summary: {
+          found: true,
+          count_locations: totalCount,
+          total_stock_units: totalStockFiltered,
+          note: "Cálculos matemáticos verificados."
+      },
+      // EL DATO QUE USA LA IA PARA NO INVENTAR
+      top_products_summary: topProductsList.slice(0, 10),
+      // EL DATO QUE USA EL MAPA PARA ILUMINARSE
+      found_ids: foundIds
+  };
+
+  if (!filters.hide_prices) {
+      response.summary.total_value_eur = totalValueSelection.toFixed(2);
+  } else {
+      response.summary.privacy_mode = "ACTIVADO";
+  }
+
+  // 5. EXPORTACIÓN INTELIGENTE
+  if (filters.export_csv === true || (filters.auto_export_if_large && totalCount > 50)) {
+    console.log(` 📂  Generando Excel Masivo (${totalCount} filas)...`);
+    const filename = `report_ingenieria_${Date.now()}.csv`;
+    const filePath = path.join(EXPORT_DIR, filename);
+    
+    await fs.writeFile(filePath, generateCSV(results, filters.search_text, filters.hide_prices), 'utf8');
+    
+    response.summary.action = "FILE_GENERATED";
+    response.summary.download_link = `http://${SERVER_HOST}:${PORT}/downloads/${filename}`;
+    response.summary.message = "He procesado los datos masivos. Te paso el resumen TOP 10, los IDs para el mapa y el archivo completo.";
+  }
+
+  return JSON.stringify(response);
+}
+
+// ==================================================================================
+//  MÓDULO 3: MOTOR DE INTELIGENCIA DE NEGOCIO (BI - VENTAS)
+// ==================================================================================
+async function analyzeSalesData(args) {
+  console.log(" 💰  [BI] Analizando Ventas Odoo:", args);
+  const days = args.days_back || 7;
+  const rawSales = await getRealTimeSales(days);
+  
+  if (!rawSales || rawSales.length === 0) return JSON.stringify({ message: "No se encontraron ventas en el periodo." });
+
+  const stats = { total_units: 0, by_brand: { BLACK: 0, GOLD: 0, WHITE: 0, GENERIC: 0 }, top_products: [] };
+  
+  if (!args.hide_prices) stats.total_value = 0;
+
+  const productMap = {};
+
+  rawSales.forEach(line => {
+    const name = line.p || "Desconocido";
+    const qty = line.q || 0;
+    const val = line.v || 0;
+    
+    stats.total_units += qty;
+    if (!args.hide_prices) stats.total_value = (stats.total_value || 0) + val;
+
+    // Lógica de Marcas (Igual que en Sync)
+    let brand = "GENERIC";
+    const upper = name.toUpperCase();
+    if (upper.includes("DF") || upper.includes("BLACK")) brand = "BLACK";
+    else if (upper.includes("CO") || upper.includes("GOLD")) brand = "GOLD";
+    else if (upper.includes("KA") || upper.includes("WHITE")) brand = "WHITE";
+
+    stats.by_brand[brand] = (stats.by_brand[brand] || 0) + qty;
+
+    if (!productMap[name]) productMap[name] = { name, qty: 0 };
+    productMap[name].qty += qty;
+    if (!args.hide_prices) productMap[name].val = (productMap[name].val || 0) + val;
+  });
+
+  stats.top_products = Object.values(productMap).sort((a, b) => b.qty - a.qty).slice(0, 10);
+  return JSON.stringify({ period: `Últimos ${days} días`, summary: stats });
+}
+
+// ==================================================================================
+//  MÓDULO 4: ANÁLISIS DETALLADO DE LOGÍSTICA
+// ==================================================================================
+async function queryDetailedData(args) {
+  console.log(" 📦  [LOGÍSTICA] Analizando datos detallados:", args);
+  const dataPath = path.join(__dirname, "data", "locations.json");
+  const raw = await fs.readFile(dataPath, "utf8");
+  const allLocations = JSON.parse(raw);
+  
+  // Usar queryWarehouseData para obtener ubicaciones filtradas
+  const result = await queryWarehouseData(allLocations, args);
+  return result;
+}
+
+// ==================================================================================
+//  ⭐ MÓDULO PACKING LIST ANALYZER v4.0 - CON INTELIGENCIA
+// ==================================================================================
+
+const packingStorage = multer.diskStorage({
+  destination: './uploads/',
+  filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
+});
+const packingUpload = multer({ storage: packingStorage, limits: { fileSize: 50 * 1024 * 1024 } });
+
+if (!fsSync.existsSync('./uploads')) fsSync.mkdirSync('./uploads', { recursive: true });
+if (!fsSync.existsSync('./packing-outputs')) fsSync.mkdirSync('./packing-outputs', { recursive: true });
+
+// Caché de Odoo
+let packingProductCache = new Map();
+let packingAbcCache = new Map();
+let packingStockCache = new Map();
+let packingLastCacheUpdate = null;
+
+// Caché de análisis (por hash de PDF)
+let packingAnalysisCache = new Map();
+
+async function calculatePDFHash(filePath) {
+  const fileBuffer = await fs.readFile(filePath);
+  return crypto.createHash('md5').update(fileBuffer).digest('hex');
+}
+
+async function refreshPackingCache() {
+  console.log('📦 [PACKING] Actualizando caché Odoo...');
+  const startTime = Date.now();
+
+  try {
+    const odooUrl = process.env.ODOO_URL || 'https://professional.illice.com';
+    const odooDb = process.env.ODOO_DB || 'blackdivision';
+    const odooUsername = process.env.ODOO_USERNAME || 'j.bernabe@illice.com';
+    const odooPassword = process.env.ODOO_PASSWORD || '98b68f64a4ee2fd5362f16f3b0427a629877f80f';
+    
+    const common = xmlrpc.createSecureClient({ url: `${odooUrl}/xmlrpc/2/common` });
+    const models = xmlrpc.createSecureClient({ url: `${odooUrl}/xmlrpc/2/object` });
+    
+    const uid = await new Promise((resolve, reject) => {
+      common.methodCall('authenticate', [
+        odooDb, odooUsername, odooPassword, {}
+      ], (err, res) => err ? reject(err) : resolve(res));
+    });
+
+    console.log('  📦 Descargando productos...');
+    const products = await new Promise((resolve, reject) => {
+      models.methodCall('execute_kw', [
+        odooDb, uid, odooPassword,
+        'product.product', 'search_read',
+        [[['default_code', '!=', false], ['active', '=', true]]],
+        { fields: ['id', 'default_code', 'name', 'standard_price'], limit: 50000 }
+      ], (err, res) => err ? reject(err) : resolve(res));
+    });
+
+    packingProductCache.clear();
+    products.forEach(p => {
+      if (p.default_code) {
+        packingProductCache.set(p.default_code.toUpperCase().trim(), {
+          id: p.id, name: p.name, code: p.default_code, cost: p.standard_price || 0
+        });
+      }
+    });
+    console.log(`    ✅ ${packingProductCache.size} productos`);
+
+    console.log('  📊 Descargando clasificación ABC...');
+    try {
+      const abcData = await new Promise((resolve, reject) => {
+        models.methodCall('execute_kw', [
+          odooDb, uid, odooPassword,
+          'abc.classification.product.level', 'search_read',
+          [[]], { fields: ['product_id', 'level_id'], limit: 100000 }
+        ], (err, res) => err ? reject(err) : resolve(res));
+      });
+      packingAbcCache.clear();
+      abcData.forEach(row => {
+        if (row.product_id && row.level_id) {
+          packingAbcCache.set(row.product_id[0], (row.level_id[1] || 'D').charAt(0).toUpperCase());
+        }
+      });
+      console.log(`    ✅ ${packingAbcCache.size} clasificaciones ABC`);
+    } catch (e) {
+      console.log(`    ⚠️ No se pudo cargar ABC: ${e.message}`);
+    }
+
+    console.log('  📍 Descargando stock...');
+    const quants = await new Promise((resolve, reject) => {
+      models.methodCall('execute_kw', [
+        odooDb, uid, odooPassword,
+        'stock.quant', 'search_read',
+        [[['location_id.usage', '=', 'internal'], ['quantity', '>', 0]]],
+        { fields: ['product_id', 'location_id', 'quantity'], limit: 100000 }
+      ], (err, res) => err ? reject(err) : resolve(res));
+    });
+
+    packingStockCache.clear();
+    quants.forEach(q => {
+      if (q.product_id) {
+        const productId = q.product_id[0];
+        if (!packingStockCache.has(productId)) {
+          packingStockCache.set(productId, { total: 0, locations: [] });
+        }
+        const entry = packingStockCache.get(productId);
+        entry.total += q.quantity;
+        entry.locations.push({ id: q.location_id[0], name: q.location_id[1], qty: q.quantity });
+      }
+    });
+    console.log(`    ✅ ${packingStockCache.size} productos con stock`);
+
+    packingLastCacheUpdate = new Date();
+    console.log(`✅ [PACKING] Caché actualizada en ${((Date.now() - startTime) / 1000).toFixed(1)}s\n`);
+    return { products: packingProductCache.size, abc: packingAbcCache.size, stock: packingStockCache.size };
+  } catch (error) {
+    console.error('❌ [PACKING] Error actualizando caché:', error.message);
+    throw error;
+  }
+}
+
+// ==================================================================================
+//  PARSER PDF CON GPT-4o + INTELIGENCIA
+// ==================================================================================
+async function parsePackingPDFWithAI(filePath) {
+  console.log('🧠 [PACKING-AI v4.0] Iniciando análisis con GPT-4o + Inteligencia...');
+  const tempScriptPath = path.join(__dirname, 'temp_extractor.py');
+  const absolutePath = path.resolve(filePath);
+  
+  const pythonScript = `
+import pdfplumber
+import json
+import sys
+import re
+
+pdf_path = sys.argv[1] if len(sys.argv) > 1 else ""
+result = {"raw_text": "", "tables": [], "container_candidates": [], "page_count": 0}
+
+try:
+    with pdfplumber.open(pdf_path) as pdf:
+        result["page_count"] = len(pdf.pages)
+        all_text = []
+        for page in pdf.pages:
+            text = page.extract_text() or ""
+            all_text.append(text)
+            tables = page.extract_tables()
+            for table in tables:
+                if table and len(table) > 0:
+                    clean_table = [[str(cell).strip() if cell else "" for cell in row] for row in table if row]
+                    if clean_table:
+                        result["tables"].append(clean_table)
+        result["raw_text"] = "\\n".join(all_text)
+        result["container_candidates"] = list(set(re.findall(r'[A-Z]{4}\\d{7}', result["raw_text"])))
+    print(json.dumps(result, ensure_ascii=False))
+except Exception as e:
+    print(json.dumps({"error": str(e)}))
+    sys.exit(1)
+`;
+
+  try {
+    await fs.writeFile(tempScriptPath, pythonScript, 'utf8');
+    const pythonExe = process.platform === 'win32' ? 'python' : 'python3';
+    const { stdout } = await execPromise(`"${pythonExe}" "${tempScriptPath}" "${absolutePath}"`, { maxBuffer: 100 * 1024 * 1024 });
+    await fs.unlink(tempScriptPath).catch(() => {});
+    
+    if (!stdout || stdout.trim() === '') throw new Error('No se pudo extraer contenido del PDF');
+    const extracted = JSON.parse(stdout);
+    if (extracted.error) throw new Error(extracted.error);
+
+    console.log(`  📄 Extraído: ${extracted.tables.length} tablas, ${extracted.page_count} páginas`);
+
+    // Construir contenido para IA
+    let contentForAI = `DOCUMENTO DE ${extracted.page_count} PÁGINAS\n`;
+    contentForAI += `CONTENEDORES DETECTADOS: ${extracted.container_candidates.join(', ') || 'Ninguno'}\n\n`;
+    
+    extracted.tables.forEach((table, idx) => {
+      const tableStr = table.map(row => row.join(' | ')).join('\n');
+      contentForAI += `\n=== TABLA ${idx + 1} ===\n${tableStr}\n`;
+    });
+    
+    if (extracted.tables.length === 0 || contentForAI.length < 2000) {
+      contentForAI += `\n=== TEXTO COMPLETO ===\n${extracted.raw_text}`;
+    }
+    
+    if (contentForAI.length > 80000) contentForAI = contentForAI.substring(0, 80000);
+
+    // Generar prompt inteligente con contexto
+    const smartPrompt = packingIntelligence.generateSmartPrompt(contentForAI);
+
+    console.log(`  🤖 Enviando a GPT-4o...`);
+    
+    const openai = getOpenAIClient();
+    const aiResponse = await openai.chat.completions.create({
+      model: "gpt-4o",
+      max_tokens: 16384,
+      temperature: 0.1,
+      messages: [
+        { role: "user", content: smartPrompt }
+      ]
+    });
+
+    let aiText = aiResponse.choices[0].message.content || '';
+    
+    let parsedAI;
+    try {
+      // Extraer JSON de la respuesta
+      const jsonMatch = aiText.match(/\{[\s\S]*\}/);
+      parsedAI = jsonMatch ? JSON.parse(jsonMatch[0]) : { items: [], confidence: "LOW" };
+    } catch (e) {
+      console.error('  ⚠️ Error parseando JSON:', e.message);
+      console.log('  📝 Respuesta IA:', aiText.substring(0, 500));
+      parsedAI = { items: [], confidence: "LOW" };
+    }
+    
+    // Asegurar container_number
+    if (!parsedAI.container_number && extracted.container_candidates.length > 0) {
+      parsedAI.container_number = extracted.container_candidates[0];
+    }
+
+    // Normalizar colores
+    if (parsedAI.items) {
+      parsedAI.items = parsedAI.items.map(item => {
+        let ref = item.reference || '';
+        if (ref.includes('-')) {
+          const parts = ref.split('-');
+          ref = `${parts[0]}-${packingIntelligence.normalizeColor(parts.slice(1).join('-'))}`;
+        }
+        return { 
+          ...item, 
+          reference: ref.toUpperCase(),
+          totalUnits: item.quantity || item.totalUnits || 0,
+          totalBoxes: item.cartons || item.totalBoxes || 0
+        };
+      });
+    }
+    
+    console.log(`  ✅ ${parsedAI.items?.length || 0} líneas extraídas (Confidence: ${parsedAI.confidence})`);
+    console.log(`  📦 Total: ${parsedAI.total_units || 'N/A'} uds, ${parsedAI.total_cartons || 'N/A'} cajas`);
+    
+    return parsedAI;
+  } catch (error) {
+    await fs.unlink(tempScriptPath).catch(() => {});
+    throw error;
+  }
+}
+
+// ==================================================================================
+//  ENRIQUECIMIENTO CON ODOO + INTELIGENCIA
+// ==================================================================================
+function enrichPackingListAI(parsedData) {
+  // Usar sistema de inteligencia para enriquecer
+  const odooCache = {
+    products: packingProductCache,
+    abc: packingAbcCache,
+    stock: packingStockCache
+  };
+  
+  const enriched = packingIntelligence.enrichParsedData(parsedData, odooCache);
+  const summary = packingIntelligence.generateSummary(enriched.items || []);
+  
+  // Ordenar items
+  if (enriched.items) {
+    enriched.items.sort((a, b) => {
+      if (a.reference !== b.reference) return a.reference.localeCompare(b.reference);
+      return 0;
+    });
+  }
+  
+  console.log(`  📊 ${enriched.items?.length || 0} líneas enriquecidas`);
+  console.log(`  📦 Total: ${summary.totalUnits} uds, ${summary.totalBoxes} cajas, ${summary.totalPallets} palets`);
+
+  return { items: enriched.items || [], summary };
+}
+
+// ==================================================================================
+//  ENDPOINTS PACKING
+// ==================================================================================
+app.get("/api/packing/health", (req, res) => {
+  const stats = packingIntelligence.getStats();
+  res.json({
+    status: 'ok', 
+    version: '4.0-GPT-INTELLIGENCE',
+    cache: { 
+      odoo: { 
+        products: packingProductCache.size, 
+        abc: packingAbcCache.size, 
+        stock: packingStockCache.size, 
+        lastUpdate: packingLastCacheUpdate 
+      },
+      analysis: { 
+        count: packingAnalysisCache.size, 
+        maxSize: 100 
+      }
+    },
+    intelligence: stats
+  });
+});
+
+app.get("/api/packing/intelligence/stats", (req, res) => {
+  res.json({
+    stats: packingIntelligence.getStats(),
+    recentAnalyses: packingIntelligence.getRecentAnalyses(10)
+  });
+});
+
+app.get("/api/packing/intelligence/reference/:ref", (req, res) => {
+  const info = packingIntelligence.getReferenceInfo(req.params.ref);
+  if (info) {
+    res.json({ found: true, reference: req.params.ref, data: info });
+  } else {
+    res.json({ found: false, reference: req.params.ref });
+  }
+});
+
+app.get("/api/packing/intelligence/search", (req, res) => {
+  const { q } = req.query;
+  if (!q) return res.status(400).json({ error: 'Parámetro q requerido' });
+  const results = packingIntelligence.searchReferences(q);
+  res.json({ query: q, results });
+});
+
+app.post("/api/packing/cache/refresh", async (req, res) => {
+  try {
+    const stats = await refreshPackingCache();
+    res.json({ success: true, stats });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/packing/cache/clear", async (req, res) => {
+  packingAnalysisCache.clear();
+  res.json({ success: true, message: 'Caché de análisis limpiada' });
+});
+
+app.post("/api/packing/analyze", packingUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
+    
+    const forceReanalyze = req.query.force === 'true';
+    console.log(`\n📄 [PACKING v4.0] Analizando: ${req.file.originalname}${forceReanalyze ? ' (FORZADO)' : ''}`);
+
+    // Calcular hash del PDF
+    const pdfHash = await calculatePDFHash(req.file.path);
+    console.log(`  🔑 Hash: ${pdfHash.substring(0, 12)}...`);
+
+    // Verificar caché
+    if (!forceReanalyze && packingAnalysisCache.has(pdfHash)) {
+      const cached = packingAnalysisCache.get(pdfHash);
+      console.log(`  ⚡ CACHE HIT! (${cached.items?.length || 0} líneas)`);
+      await fs.unlink(req.file.path).catch(() => {});
+      return res.json({ ...cached, fromCache: true, cacheDate: cached.analyzedAt });
+    }
+
+    // Actualizar caché Odoo si es necesario
+    if (!packingLastCacheUpdate || (Date.now() - packingLastCacheUpdate.getTime()) > 3600000) {
+      try { await refreshPackingCache(); } catch (e) { console.warn('⚠️ Cache Odoo no actualizada'); }
+    }
+
+    // Analizar con IA
+    const parsed = await parsePackingPDFWithAI(req.file.path);
+    const containerNumber = parsed.container_number || req.file.originalname.match(/[A-Z]{4}\d{7}/)?.[0] || 'UNKNOWN';
+    
+    // Enriquecer con Odoo + Inteligencia
+    const enriched = enrichPackingListAI(parsed);
+
+    // APRENDER de este análisis
+    packingIntelligence.learnFromAnalysis(containerNumber, enriched.items, true);
+
+    // Construir resultado
+    const result = {
+      success: true,
+      containerNumber,
+      summary: enriched.summary,
+      items: enriched.items,
+      groupedTotals: enriched.summary.groupedTotals,
+      aiPowered: true,
+      model: 'GPT-4o',
+      intelligenceVersion: '4.0',
+      analyzedAt: new Date().toISOString(),
+      fileName: req.file.originalname
+    };
+    
+    // Guardar en caché
+    packingAnalysisCache.set(pdfHash, result);
+    
+    // Limpiar archivo temporal
+    await fs.unlink(req.file.path).catch(() => {});
+    
+    console.log(`✅ [PACKING] Completado: ${enriched.items.length} líneas (aprendizaje actualizado)\n`);
+
+    res.json({ ...result, fromCache: false });
+  } catch (error) {
+    console.error('❌ [PACKING] Error:', error);
+    if (req.file) await fs.unlink(req.file.path).catch(() => {});
+    
+    // Registrar fallo en inteligencia
+    packingIntelligence.learnFromAnalysis('ERROR', [], false);
+    
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/packing/download/:filename", (req, res) => {
+  res.download(path.join(__dirname, 'packing-outputs', req.params.filename));
+});
+
+// --- DEFINICIÓN DE HERRAMIENTAS PARA GPT-4o ---
+const tools = [
+  {
+    type: "function",
+    function: {
+      name: "consultar_almacen",
+      description: "Herramienta TOTAL. Busca Stock, Filtra por Temporada/ABC/Marca, devuelve IDs para el mapa y Exporta Excel.",
+      parameters: {
+        type: "object",
+        properties: {
+          status: { type: "string", enum: ["ALL", "EMPTY", "OCCUPIED"] },
+          brand: { type: "string", enum: ["ALL", "BD", "GD", "WD"] },
+          search_text: { type: "string" },
+          min_days_old: { type: "number" },
+          abc_class: { type: "string", enum: ["A", "B", "C", "D"] },
+          season: { type: "string", description: "Filtra por Temporada (ej: 'V26', 'I23')." },
+          min_velocity: { type: "number" },
+          check_mixing_a_d: { type: "boolean" },
+          hide_prices: { type: "boolean" },
+          export_csv: { type: "boolean" },
+          auto_export_if_large: { type: "boolean" }
+        },
+        required: ["auto_export_if_large"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "analizar_ventas",
+      description: "Consulta VENTAS reales (Odoo BI).",
+      parameters: {
+        type: "object",
+        properties: { 
+            days_back: { type: "number" },
+            hide_prices: { type: "boolean" }
+        },
+        required: ["days_back"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "analyze_logistics",
+      description: "Análisis detallado de logística y almacén.",
+      parameters: {
+        type: "object",
+        properties: {
+          status: { type: "string", enum: ["ALL", "EMPTY", "OCCUPIED"] },
+          brand: { type: "string", enum: ["ALL", "BD", "GD", "WD"] },
+          search_text: { type: "string" },
+          min_days_old: { type: "number" },
+          abc_class: { type: "string", enum: ["A", "B", "C", "D"] },
+          season: { type: "string" },
+          min_velocity: { type: "number" },
+          check_mixing_a_d: { type: "boolean" },
+          hide_prices: { type: "boolean" },
+          export_csv: { type: "boolean" },
+          auto_export_if_large: { type: "boolean" }
+        },
+        required: ["auto_export_if_large"],
+      },
+    },
+  },
+];
+
+// ==================================================================================
+//  ENDPOINT: STRATEGIC CHAT
+// ==================================================================================
+app.post("/api/strategic-chat", async (req, res) => {
+  try {
+    const { message, history } = req.body;
+    console.log(` 💬  [STRATEGIC CHAT] Procesando: "${message}"`);
+
+    const systemPrompt = `Eres un asistente estratégico de logística y gestión de almacén. 
+Proporciona análisis estratégicos, recomendaciones y respuestas detalladas sobre operaciones de almacén, 
+gestión de inventario, optimización de procesos y toma de decisiones empresariales.`;
+
+    const claudeMessages = (history || []).map(m => ({
+      role: m.role === 'ai' ? 'assistant' : 'user',
+      content: m.content
+    }));
+
+    const openai = getOpenAIClient();
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      max_tokens: 2048,
+      messages: [
+        { role: "system", content: systemPrompt },
+        ...claudeMessages,
+        { role: "user", content: message }
+      ]
+    });
+
+    const answer = response.choices[0].message.content;
+
+    res.json({ text: answer });
+  } catch (err) {
+    console.error(" ❌  Error Strategic Chat:", err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ==================================================================================
-//  SINCRONIZACIÓN AUTOMÁTICA CON ODOO
+//  AGENTE DE INTELIGENCIA ARTIFICIAL (ENDPOINT)
 // ==================================================================================
-const POLLING_INTERVAL_MS = parseInt(process.env.POLLING_INTERVAL_MS || '5000', 10);
-let isSyncing = false;
+app.post("/api/ai/report", async (req, res) => {
+  try {
+    const { query, history } = req.body;
+    console.log(` 🤖  [AGENTE] Procesando: "${query}"`);
+    const dataPath = path.join(__dirname, "data", "locations.json");
+    const raw = await fs.readFile(dataPath, "utf8");
+    const allLocations = JSON.parse(raw);
 
+    const SYSTEM_PROMPT = `
+      Eres una IA de Ingeniería Logística y Financiera (Nivel Experto).
+      
+      REGLAS OPERATIVAS:
+      1. **ILUMINACIÓN DEL MAPA:** Si el usuario dice "Ilumina", "Muestra en el mapa" o "Dónde están", tu respuesta JSON incluirá automáticamente los IDs para iluminar el mapa. Tú solo confirma: "He iluminado las X ubicaciones en el mapa".
+      2. **DATOS REALES:** Usa SIEMPRE 'top_products_summary' para responder cantidades. NO sumes tú.
+      3. **PRIVACIDAD:** Si 'hide_prices' es true, no hables de dinero.
+      4. **ARCHIVOS:** Si hay archivo, di: "📥 **[Descargar Informe] (LINK)**".
+    `;
+
+    const messages = [
+      { role: "system", content: SYSTEM_PROMPT },
+      ...(history || []).map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content })),
+      { role: "user", content: query }
+    ];
+
+    const openai = getOpenAIClient();
+    
+    // Convertir tools de formato OpenAI (ya están en formato correcto)
+    const openaiTools = tools;
+
+    let response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      max_tokens: 4096,
+      messages: messages,
+      tools: openaiTools,
+      tool_choice: "auto"
+    });
+
+    let finalMapIds = [];
+
+    while (response.choices[0].finish_reason === 'tool_calls') {
+      const toolCalls = response.choices[0].message.tool_calls || [];
+      const toolResults = [];
+
+      for (const toolCall of toolCalls) {
+        const fnName = toolCall.function.name;
+        const args = JSON.parse(toolCall.function.arguments);
+        let functionResult = "";
+
+        console.log(` 🛠️  Ejecutando herramienta: ${fnName}`);
+
+        if (fnName === 'consultar_almacen') {
+          args.auto_export_if_large = true;
+          const resultRaw = await queryWarehouseData(allLocations, args);
+          functionResult = resultRaw;
+          try {
+            const parsed = JSON.parse(resultRaw);
+            if (parsed.found_ids) finalMapIds = [...finalMapIds, ...parsed.found_ids];
+          } catch (e) {}
+
+        } else if (fnName === 'analizar_ventas') {
+          functionResult = await analyzeSalesData(args);
+        
+        } else if (fnName === 'analyze_logistics') {
+          functionResult = await queryDetailedData(args);
+          try {
+            const parsed = JSON.parse(functionResult);
+            if (Array.isArray(parsed)) {
+              const ids = parsed.map(p => p.locationId);
+              finalMapIds = [...finalMapIds, ...ids];
+            } else if (parsed.found_ids) {
+              finalMapIds = [...finalMapIds, ...parsed.found_ids];
+            }
+          } catch(e) { console.error("Error parseando logística:", e); }
+        }
+
+        toolResults.push({
+          tool_call_id: toolCall.id,
+          role: "tool",
+          content: functionResult
+        });
+      }
+
+      // Continuar conversación con resultados
+      response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        max_tokens: 4096,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          ...messages.filter(m => m.role !== 'system'),
+          response.choices[0].message,
+          ...toolResults
+        ],
+        tools: openaiTools,
+        tool_choice: "auto"
+      });
+    }
+
+    const finalText = response.choices[0].message.content || "No se pudo generar respuesta.";
+
+    // ENVIAMOS RESPUESTA MIXTA (TEXTO + COMANDO MAPA)
+    res.json({ 
+      text: finalText,
+      map_highlight_ids: [...new Set(finalMapIds)],
+      model: "GPT-4o"
+    });
+  } catch (err) {
+    console.error(" ❌  Error Agente:", err.message);
+    res.json({ text: `###  ⚠️  Error Técnico\n\n${err.message}` });
+  }
+});
+
+// --- SERVIDOR BASE ---
+app.get("/api/locations", async (req, res) => {
+  const dataPath = path.join(__dirname, "data", "locations.json");
+  const raw = await fs.readFile(dataPath, "utf8");
+  res.json(JSON.parse(raw));
+});
+app.get("/api/movements", (req, res) => res.json(movements.slice(0, 50)));
+const server = createServer(app);
+const wss = new WebSocketServer({ server });
+function broadcastUpdate(data) { wss.clients.forEach(c => { if (c.readyState === 1) c.send(JSON.stringify({ type: "UPDATE_LOCATIONS", payload: data })); }); }
+wss.on("connection", () => console.log("WS conectado"));
+const POLLING_INTERVAL_MS = 5000;
+let isSyncing = false;
 setInterval(async () => {
   if (isSyncing) return;
-  try {
-    isSyncing = true;
-    const updatedData = await syncWithOdoo();
-    if (updatedData) {
-      broadcastUpdate(updatedData);
-      logger.debug("Sincronización completada", { locations: updatedData.length });
-    }
-  } catch (e) {
-    logger.error("Error en sincronización", { error: e.message });
-  } finally {
-    isSyncing = false;
-  }
+  try { isSyncing = true; const updatedData = await syncWithOdoo(); if (updatedData) broadcastUpdate(updatedData); }
+  catch (e) { console.error(e.message); } finally { isSyncing = false; }
 }, POLLING_INTERVAL_MS);
-
-// ==================================================================================
-//  MIDDLEWARE DE ERRORES (debe ir al final)
-// ==================================================================================
-app.use(errorHandler);
-
-// ==================================================================================
-//  INICIO DEL SERVIDOR
-// ==================================================================================
-server.listen(PORT, '0.0.0.0', () => {
-  logger.info(`🚀 Servidor iniciado en ${SERVER_HOST}:${PORT}`);
-  logger.info(`📊 Estructura modular activa`);
-  logger.info(`🔄 Sincronización cada ${POLLING_INTERVAL_MS}ms`);
-  
-  // Iniciar recolección de historial (cada hora)
-  // Iniciar recolección de historial (cada hora)
-  startHistoryCollection(60);
-  // Guardar snapshot inicial
-  import('./src/services/historyService.js').then(({ saveMetricsSnapshot }) => {
-    saveMetricsSnapshot().catch(err => logger.warn('Error en snapshot inicial', { error: err.message }));
-  });
-  
-  // Iniciar programador de notificaciones (cada 24 horas)
-  startNotificationScheduler(24);
-});
-
+server.listen(PORT, () => console.log(` 🚀  CEREBRO DEFINITIVO (Copilot + Math + Seasons) en ${PORT}`));
