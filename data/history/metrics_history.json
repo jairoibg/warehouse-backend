@@ -350,5 +350,21 @@
         "D": 11864
       }
     }
+  },
+  {
+    "timestamp": "2025-12-31T10:24:30.484Z",
+    "metrics": {
+      "totalValue": 36099429.84676395,
+      "totalLocations": 5080,
+      "occupiedLocations": 2410,
+      "totalStock": 649278,
+      "avgOccupancy": 34.24114173228347,
+      "abcDistribution": {
+        "A": 15682,
+        "B": 17963,
+        "C": 21069,
+        "D": 10564
+      }
+    }
   }
 ]
