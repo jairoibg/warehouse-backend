@@ -1,0 +1,1642 @@
+{
+  "a934b6600f815c2f19bf5beb837714ed": {
+    "success": true,
+    "containerNumber": "UNKNOWN",
+    "summary": {
+      "totalUnits": 0,
+      "totalBoxes": 0,
+      "totalPallets": 0,
+      "byABC": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0,
+        "NEW": 0
+      },
+      "byType": {
+        "SUNGLASSES": 0,
+        "SOCKS": 0,
+        "FOOTWEAR_ADULT": 0,
+        "FOOTWEAR_KIDS": 0,
+        "UNKNOWN": 0
+      },
+      "newReferences": [],
+      "consolidationAlerts": [],
+      "groupedTotals": []
+    },
+    "items": [],
+    "groupedTotals": [],
+    "aiPowered": true,
+    "model": "opus-4.5",
+    "analyzedAt": "2025-12-30T22:59:53.028Z",
+    "fileName": "PL ALMACÃN NGB39115214.pdf"
+  },
+  "f4f98ca83abb69b4287f1b097ec24b9c": {
+    "success": true,
+    "containerNumber": "UNKNOWN",
+    "summary": {
+      "totalUnits": 0,
+      "totalBoxes": 0,
+      "totalPallets": 0,
+      "byABC": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0,
+        "NEW": 0
+      },
+      "byType": {
+        "SUNGLASSES": 0,
+        "SOCKS": 0,
+        "FOOTWEAR_ADULT": 0,
+        "FOOTWEAR_KIDS": 0,
+        "UNKNOWN": 0
+      },
+      "newReferences": [],
+      "consolidationAlerts": [],
+      "groupedTotals": []
+    },
+    "items": [],
+    "groupedTotals": [],
+    "aiPowered": true,
+    "model": "opus-4.5",
+    "analyzedAt": "2025-12-30T23:00:23.007Z",
+    "fileName": "PL ALMACÃN NGB39115213.pdf"
+  },
+  "cae123b6bc773afdd1667761b6b49c44": {
+    "success": true,
+    "containerNumber": "CAAU9872370",
+    "summary": {
+      "totalUnits": 0,
+      "totalBoxes": 0,
+      "totalPallets": 0,
+      "byABC": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0,
+        "NEW": 0
+      },
+      "byType": {
+        "SUNGLASSES": 0,
+        "SOCKS": 0,
+        "FOOTWEAR_ADULT": 0,
+        "FOOTWEAR_KIDS": 0,
+        "UNKNOWN": 0
+      },
+      "newReferences": [],
+      "consolidationAlerts": [],
+      "groupedTotals": []
+    },
+    "items": [],
+    "groupedTotals": [],
+    "aiPowered": true,
+    "model": "opus-4.5",
+    "analyzedAt": "2025-12-30T23:11:50.723Z",
+    "fileName": "PL ALMACÃN CAAU9872370__.pdf"
+  },
+  "507a0e4749f682ef1beda7af0e14e0af": {
+    "success": true,
+    "containerNumber": "MRKU0711846",
+    "summary": {
+      "totalUnits": 6156,
+      "totalBoxes": 0,
+      "totalPallets": 0,
+      "byABC": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 6156,
+        "NEW": 0
+      },
+      "byType": {
+        "SUNGLASSES": 0,
+        "SOCKS": 0,
+        "FOOTWEAR_ADULT": 6156,
+        "FOOTWEAR_KIDS": 0,
+        "UNKNOWN": 0
+      },
+      "newReferences": [],
+      "consolidationAlerts": [
+        {
+          "itemNo": "COSH244008",
+          "currentStock": 22,
+          "incomingUnits": 1404,
+          "message": "⚠️ Stock: 22 uds en 20 ubic. (CLAGD/Stock/EXTGD/CLA-111-09-02-02, CLAGD/Stock/EXTGD/CLA-111-09-01-02, CLAGD/Stock/EXTGD/CLA-111-01-02-02)"
+        },
+        {
+          "itemNo": "COSH244010",
+          "currentStock": 21,
+          "incomingUnits": 684,
+          "message": "⚠️ Stock: 21 uds en 18 ubic. (Return B2B GD, CLAGD/Stock/EXTGD/CLA-110-07-01-02, CLAGD/Stock/EXTGD/CLA-120-07-02-02)"
+        },
+        {
+          "itemNo": "COSH244011",
+          "currentStock": 13,
+          "incomingUnits": 2460,
+          "message": "⚠️ Stock: 13 uds en 11 ubic. (Return B2B GD, CLAGD/Stock/EXTGD/CLA-117-03-02-02, CLAGD/Stock/EXTGD/CLA-119-03-02-02)"
+        },
+        {
+          "itemNo": "COSH244012",
+          "currentStock": 11,
+          "incomingUnits": 540,
+          "message": "⚠️ Stock: 11 uds en 7 ubic. (Return GD, CLAGD/Stock/EXTGD/CLA-110-01-02-02, CLAGD/Stock/EXTGD/CLA-111-09-02-02)"
+        },
+        {
+          "itemNo": "COSH244014",
+          "currentStock": 24,
+          "incomingUnits": 624,
+          "message": "⚠️ Stock: 24 uds en 20 ubic. (CLAGD/Stock/EXTGD/CLA-110-08-03-02, CLAGD/Stock/EXTGD/CLA-110-05-01-02, CLAGD/Stock/EXTGD/CLA-110-08-01-02)"
+        },
+        {
+          "itemNo": "COSH244017",
+          "currentStock": 19,
+          "incomingUnits": 444,
+          "message": "⚠️ Stock: 19 uds en 18 ubic. (Return GD, CLAGD/Stock/EXTGD/CLA-111-02-01-02, CLAGD/Stock/EXTGD/CLA-117-03-01-02)"
+        }
+      ],
+      "groupedTotals": [
+        {
+          "reference": "COSH244008",
+          "productName": "TROOPER BOOTS HEART BLACK",
+          "totalUnits": 1404,
+          "totalBoxes": 0,
+          "totalPallets": 0,
+          "lines": 4,
+          "abcClass": "D",
+          "currentStock": 22,
+          "stockLocations": [
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-111-09-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-111-09-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-111-01-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-110-02-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-111-02-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-117-02-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-117-03-01-02",
+              "qty": 2
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-118-07-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-117-04-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-121-01-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-121-03-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-106-07-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-103-06-03-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-105-02-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-104-07-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-103-03-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-102-01-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-103-02-01-02",
+              "qty": 2
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-102-05-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-106-06-01-02",
+              "qty": 1
+            }
+          ]
+        },
+        {
+          "reference": "COSH244010",
+          "productName": "TROOPER BOOTS STAR BLACK",
+          "totalUnits": 684,
+          "totalBoxes": 0,
+          "totalPallets": 0,
+          "lines": 2,
+          "abcClass": "D",
+          "currentStock": 21,
+          "stockLocations": [
+            {
+              "location": "Return B2B GD",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-110-07-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-120-07-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-124-09-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-109-03-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-108-05-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-107-01-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-107-01-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-107-07-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-106-06-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-105-07-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-103-06-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-103-05-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-102-07-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-103-02-01-02",
+              "qty": 3
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-101-01-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-101-04-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-101-03-02-02",
+              "qty": 2
+            }
+          ]
+        },
+        {
+          "reference": "COSH244011",
+          "productName": "TROOPER BOOTS PATENT BLACK",
+          "totalUnits": 2460,
+          "totalBoxes": 0,
+          "totalPallets": 0,
+          "lines": 4,
+          "abcClass": "D",
+          "currentStock": 13,
+          "stockLocations": [
+            {
+              "location": "Return B2B GD",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-117-03-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-119-03-02-02",
+              "qty": 3
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-107-08-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-106-02-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-105-09-03-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-103-06-03-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-103-07-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-103-07-01-02",
+              "qty": 1
+            },
+            {
+              "location": "Return B2B GD",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-101-01-02-02",
+              "qty": 1
+            }
+          ]
+        },
+        {
+          "reference": "COSH244012",
+          "productName": "TROOPER BOOTS STARS BLACK",
+          "totalUnits": 540,
+          "totalBoxes": 0,
+          "totalPallets": 0,
+          "lines": 2,
+          "abcClass": "D",
+          "currentStock": 11,
+          "stockLocations": [
+            {
+              "location": "Return GD",
+              "qty": 2
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-110-01-02-02",
+              "qty": 2
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-111-09-02-02",
+              "qty": 2
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-120-06-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-123-02-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-103-07-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-103-09-02-02",
+              "qty": 2
+            }
+          ]
+        },
+        {
+          "reference": "COSH244014",
+          "productName": "BIKER BOOTS HEARTS BLACK",
+          "totalUnits": 624,
+          "totalBoxes": 0,
+          "totalPallets": 0,
+          "lines": 2,
+          "abcClass": "D",
+          "currentStock": 24,
+          "stockLocations": [
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-110-08-03-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-110-05-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-110-08-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-110-03-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-112-09-03-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-112-09-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-117-01-02-02",
+              "qty": 2
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-117-01-01-02",
+              "qty": 3
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-120-08-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-120-06-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-119-02-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-121-05-01-02",
+              "qty": 2
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-123-05-03-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-124-08-03-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-106-04-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-107-04-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-106-03-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-107-08-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/StorageGD/CLA-040-01-01-03",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-112-06-02-02",
+              "qty": 1
+            }
+          ]
+        },
+        {
+          "reference": "COSH244017",
+          "productName": "TROOPER BOOTS STAR PEWTER ",
+          "totalUnits": 444,
+          "totalBoxes": 0,
+          "totalPallets": 0,
+          "lines": 2,
+          "abcClass": "D",
+          "currentStock": 19,
+          "stockLocations": [
+            {
+              "location": "Return GD",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-111-02-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-117-03-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-117-03-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-118-06-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-120-09-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-120-05-02-02",
+              "qty": 2
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-120-06-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-119-04-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-122-07-03-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-123-01-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-108-09-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-107-06-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-106-07-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-104-03-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-104-07-02-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-103-05-01-02",
+              "qty": 1
+            },
+            {
+              "location": "CLAGD/Stock/EXTGD/CLA-102-08-01-02",
+              "qty": 1
+            }
+          ]
+        }
+      ]
+    },
+    "items": [
+      {
+        "lineNumber": 25,
+        "itemNo": "COSH244008",
+        "productName": "TROOPER BOOTS HEART BLACK",
+        "sizeRange": "-",
+        "prsPerCtn": "-",
+        "totalUnits": 300,
+        "totalBoxes": 0,
+        "totalPallets": 0,
+        "productType": "FOOTWEAR_ADULT",
+        "boxesPerPallet": 14,
+        "abcClass": "D",
+        "currentStock": 22,
+        "stockLocations": [
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-09-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-09-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-01-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-110-02-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-02-01-02",
+            "qty": 1
+          }
+        ]
+      },
+      {
+        "lineNumber": 38,
+        "itemNo": "COSH244008",
+        "productName": "TROOPER BOOTS HEART BLACK",
+        "sizeRange": "-",
+        "prsPerCtn": "-",
+        "totalUnits": 156,
+        "totalBoxes": 0,
+        "totalPallets": 0,
+        "productType": "FOOTWEAR_ADULT",
+        "boxesPerPallet": 14,
+        "abcClass": "D",
+        "currentStock": 22,
+        "stockLocations": [
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-09-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-09-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-01-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-110-02-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-02-01-02",
+            "qty": 1
+          }
+        ]
+      },
+      {
+        "lineNumber": 52,
+        "itemNo": "COSH244008",
+        "productName": "TROOPER BOOTS HEART BLACK",
+        "sizeRange": "-",
+        "prsPerCtn": "-",
+        "totalUnits": 624,
+        "totalBoxes": 0,
+        "totalPallets": 0,
+        "productType": "FOOTWEAR_ADULT",
+        "boxesPerPallet": 14,
+        "abcClass": "D",
+        "currentStock": 22,
+        "stockLocations": [
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-09-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-09-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-01-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-110-02-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-02-01-02",
+            "qty": 1
+          }
+        ]
+      },
+      {
+        "lineNumber": 79,
+        "itemNo": "COSH244008",
+        "productName": "TROOPER BOOTS HEART BLACK",
+        "sizeRange": "-",
+        "prsPerCtn": "-",
+        "totalUnits": 324,
+        "totalBoxes": 0,
+        "totalPallets": 0,
+        "productType": "FOOTWEAR_ADULT",
+        "boxesPerPallet": 14,
+        "abcClass": "D",
+        "currentStock": 22,
+        "stockLocations": [
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-09-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-09-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-01-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-110-02-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-02-01-02",
+            "qty": 1
+          }
+        ]
+      },
+      {
+        "lineNumber": 61,
+        "itemNo": "COSH244010",
+        "productName": "TROOPER BOOTS STAR BLACK",
+        "sizeRange": "-",
+        "prsPerCtn": "-",
+        "totalUnits": 276,
+        "totalBoxes": 0,
+        "totalPallets": 0,
+        "productType": "FOOTWEAR_ADULT",
+        "boxesPerPallet": 14,
+        "abcClass": "D",
+        "currentStock": 21,
+        "stockLocations": [
+          {
+            "location": "Return B2B GD",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-110-07-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-120-07-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-124-09-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-109-03-02-02",
+            "qty": 1
+          }
+        ]
+      },
+      {
+        "lineNumber": 113,
+        "itemNo": "COSH244010",
+        "productName": "TROOPER BOOTS STAR BLACK",
+        "sizeRange": "-",
+        "prsPerCtn": "-",
+        "totalUnits": 408,
+        "totalBoxes": 0,
+        "totalPallets": 0,
+        "productType": "FOOTWEAR_ADULT",
+        "boxesPerPallet": 14,
+        "abcClass": "D",
+        "currentStock": 21,
+        "stockLocations": [
+          {
+            "location": "Return B2B GD",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-110-07-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-120-07-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-124-09-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-109-03-02-02",
+            "qty": 1
+          }
+        ]
+      },
+      {
+        "lineNumber": 86,
+        "itemNo": "COSH244011",
+        "productName": "TROOPER BOOTS PATENT BLACK",
+        "sizeRange": "-",
+        "prsPerCtn": "-",
+        "totalUnits": 300,
+        "totalBoxes": 0,
+        "totalPallets": 0,
+        "productType": "FOOTWEAR_ADULT",
+        "boxesPerPallet": 14,
+        "abcClass": "D",
+        "currentStock": 13,
+        "stockLocations": [
+          {
+            "location": "Return B2B GD",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-117-03-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-119-03-02-02",
+            "qty": 3
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-107-08-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-106-02-02-02",
+            "qty": 1
+          }
+        ]
+      },
+      {
+        "lineNumber": 111,
+        "itemNo": "COSH244011",
+        "productName": "TROOPER BOOTS PATENT BLACK",
+        "sizeRange": "-",
+        "prsPerCtn": "-",
+        "totalUnits": 300,
+        "totalBoxes": 0,
+        "totalPallets": 0,
+        "productType": "FOOTWEAR_ADULT",
+        "boxesPerPallet": 14,
+        "abcClass": "D",
+        "currentStock": 13,
+        "stockLocations": [
+          {
+            "location": "Return B2B GD",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-117-03-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-119-03-02-02",
+            "qty": 3
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-107-08-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-106-02-02-02",
+            "qty": 1
+          }
+        ]
+      },
+      {
+        "lineNumber": 183,
+        "itemNo": "COSH244011",
+        "productName": "TROOPER BOOTS PATENT BLACK",
+        "sizeRange": "-",
+        "prsPerCtn": "-",
+        "totalUnits": 840,
+        "totalBoxes": 0,
+        "totalPallets": 0,
+        "productType": "FOOTWEAR_ADULT",
+        "boxesPerPallet": 14,
+        "abcClass": "D",
+        "currentStock": 13,
+        "stockLocations": [
+          {
+            "location": "Return B2B GD",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-117-03-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-119-03-02-02",
+            "qty": 3
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-107-08-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-106-02-02-02",
+            "qty": 1
+          }
+        ]
+      },
+      {
+        "lineNumber": 268,
+        "itemNo": "COSH244011",
+        "productName": "TROOPER BOOTS PATENT BLACK",
+        "sizeRange": "-",
+        "prsPerCtn": "-",
+        "totalUnits": 1020,
+        "totalBoxes": 0,
+        "totalPallets": 0,
+        "productType": "FOOTWEAR_ADULT",
+        "boxesPerPallet": 14,
+        "abcClass": "D",
+        "currentStock": 13,
+        "stockLocations": [
+          {
+            "location": "Return B2B GD",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-117-03-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-119-03-02-02",
+            "qty": 3
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-107-08-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-106-02-02-02",
+            "qty": 1
+          }
+        ]
+      },
+      {
+        "lineNumber": 132,
+        "itemNo": "COSH244012",
+        "productName": "TROOPER BOOTS STARS BLACK",
+        "sizeRange": "-",
+        "prsPerCtn": "-",
+        "totalUnits": 252,
+        "totalBoxes": 0,
+        "totalPallets": 0,
+        "productType": "FOOTWEAR_ADULT",
+        "boxesPerPallet": 14,
+        "abcClass": "D",
+        "currentStock": 11,
+        "stockLocations": [
+          {
+            "location": "Return GD",
+            "qty": 2
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-110-01-02-02",
+            "qty": 2
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-09-02-02",
+            "qty": 2
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-120-06-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-123-02-01-02",
+            "qty": 1
+          }
+        ]
+      },
+      {
+        "lineNumber": 292,
+        "itemNo": "COSH244012",
+        "productName": "TROOPER BOOTS STARS BLACK",
+        "sizeRange": "-",
+        "prsPerCtn": "-",
+        "totalUnits": 288,
+        "totalBoxes": 0,
+        "totalPallets": 0,
+        "productType": "FOOTWEAR_ADULT",
+        "boxesPerPallet": 14,
+        "abcClass": "D",
+        "currentStock": 11,
+        "stockLocations": [
+          {
+            "location": "Return GD",
+            "qty": 2
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-110-01-02-02",
+            "qty": 2
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-09-02-02",
+            "qty": 2
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-120-06-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-123-02-01-02",
+            "qty": 1
+          }
+        ]
+      },
+      {
+        "lineNumber": 169,
+        "itemNo": "COSH244014",
+        "productName": "BIKER BOOTS HEARTS BLACK",
+        "sizeRange": "-",
+        "prsPerCtn": "-",
+        "totalUnits": 444,
+        "totalBoxes": 0,
+        "totalPallets": 0,
+        "productType": "FOOTWEAR_ADULT",
+        "boxesPerPallet": 14,
+        "abcClass": "D",
+        "currentStock": 24,
+        "stockLocations": [
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-110-08-03-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-110-05-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-110-08-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-110-03-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-112-09-03-02",
+            "qty": 1
+          }
+        ]
+      },
+      {
+        "lineNumber": 307,
+        "itemNo": "COSH244014",
+        "productName": "BIKER BOOTS HEARTS BLACK",
+        "sizeRange": "-",
+        "prsPerCtn": "-",
+        "totalUnits": 180,
+        "totalBoxes": 0,
+        "totalPallets": 0,
+        "productType": "FOOTWEAR_ADULT",
+        "boxesPerPallet": 14,
+        "abcClass": "D",
+        "currentStock": 24,
+        "stockLocations": [
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-110-08-03-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-110-05-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-110-08-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-110-03-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-112-09-03-02",
+            "qty": 1
+          }
+        ]
+      },
+      {
+        "lineNumber": 194,
+        "itemNo": "COSH244017",
+        "productName": "TROOPER BOOTS STAR PEWTER ",
+        "sizeRange": "-",
+        "prsPerCtn": "-",
+        "totalUnits": 300,
+        "totalBoxes": 0,
+        "totalPallets": 0,
+        "productType": "FOOTWEAR_ADULT",
+        "boxesPerPallet": 14,
+        "abcClass": "D",
+        "currentStock": 19,
+        "stockLocations": [
+          {
+            "location": "Return GD",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-02-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-117-03-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-117-03-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-118-06-01-02",
+            "qty": 1
+          }
+        ]
+      },
+      {
+        "lineNumber": 319,
+        "itemNo": "COSH244017",
+        "productName": "TROOPER BOOTS STAR PEWTER ",
+        "sizeRange": "-",
+        "prsPerCtn": "-",
+        "totalUnits": 144,
+        "totalBoxes": 0,
+        "totalPallets": 0,
+        "productType": "FOOTWEAR_ADULT",
+        "boxesPerPallet": 14,
+        "abcClass": "D",
+        "currentStock": 19,
+        "stockLocations": [
+          {
+            "location": "Return GD",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-02-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-117-03-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-117-03-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-118-06-01-02",
+            "qty": 1
+          }
+        ]
+      }
+    ],
+    "groupedTotals": [
+      {
+        "reference": "COSH244008",
+        "productName": "TROOPER BOOTS HEART BLACK",
+        "totalUnits": 1404,
+        "totalBoxes": 0,
+        "totalPallets": 0,
+        "lines": 4,
+        "abcClass": "D",
+        "currentStock": 22,
+        "stockLocations": [
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-09-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-09-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-01-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-110-02-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-02-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-117-02-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-117-03-01-02",
+            "qty": 2
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-118-07-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-117-04-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-121-01-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-121-03-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-106-07-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-103-06-03-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-105-02-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-104-07-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-103-03-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-102-01-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-103-02-01-02",
+            "qty": 2
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-102-05-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-106-06-01-02",
+            "qty": 1
+          }
+        ]
+      },
+      {
+        "reference": "COSH244010",
+        "productName": "TROOPER BOOTS STAR BLACK",
+        "totalUnits": 684,
+        "totalBoxes": 0,
+        "totalPallets": 0,
+        "lines": 2,
+        "abcClass": "D",
+        "currentStock": 21,
+        "stockLocations": [
+          {
+            "location": "Return B2B GD",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-110-07-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-120-07-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-124-09-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-109-03-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-108-05-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-107-01-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-107-01-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-107-07-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-106-06-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-105-07-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-103-06-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-103-05-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-102-07-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-103-02-01-02",
+            "qty": 3
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-101-01-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-101-04-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-101-03-02-02",
+            "qty": 2
+          }
+        ]
+      },
+      {
+        "reference": "COSH244011",
+        "productName": "TROOPER BOOTS PATENT BLACK",
+        "totalUnits": 2460,
+        "totalBoxes": 0,
+        "totalPallets": 0,
+        "lines": 4,
+        "abcClass": "D",
+        "currentStock": 13,
+        "stockLocations": [
+          {
+            "location": "Return B2B GD",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-117-03-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-119-03-02-02",
+            "qty": 3
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-107-08-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-106-02-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-105-09-03-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-103-06-03-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-103-07-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-103-07-01-02",
+            "qty": 1
+          },
+          {
+            "location": "Return B2B GD",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-101-01-02-02",
+            "qty": 1
+          }
+        ]
+      },
+      {
+        "reference": "COSH244012",
+        "productName": "TROOPER BOOTS STARS BLACK",
+        "totalUnits": 540,
+        "totalBoxes": 0,
+        "totalPallets": 0,
+        "lines": 2,
+        "abcClass": "D",
+        "currentStock": 11,
+        "stockLocations": [
+          {
+            "location": "Return GD",
+            "qty": 2
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-110-01-02-02",
+            "qty": 2
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-09-02-02",
+            "qty": 2
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-120-06-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-123-02-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-103-07-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-103-09-02-02",
+            "qty": 2
+          }
+        ]
+      },
+      {
+        "reference": "COSH244014",
+        "productName": "BIKER BOOTS HEARTS BLACK",
+        "totalUnits": 624,
+        "totalBoxes": 0,
+        "totalPallets": 0,
+        "lines": 2,
+        "abcClass": "D",
+        "currentStock": 24,
+        "stockLocations": [
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-110-08-03-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-110-05-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-110-08-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-110-03-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-112-09-03-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-112-09-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-117-01-02-02",
+            "qty": 2
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-117-01-01-02",
+            "qty": 3
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-120-08-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-120-06-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-119-02-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-121-05-01-02",
+            "qty": 2
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-123-05-03-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-124-08-03-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-106-04-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-107-04-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-106-03-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-107-08-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/StorageGD/CLA-040-01-01-03",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-112-06-02-02",
+            "qty": 1
+          }
+        ]
+      },
+      {
+        "reference": "COSH244017",
+        "productName": "TROOPER BOOTS STAR PEWTER ",
+        "totalUnits": 444,
+        "totalBoxes": 0,
+        "totalPallets": 0,
+        "lines": 2,
+        "abcClass": "D",
+        "currentStock": 19,
+        "stockLocations": [
+          {
+            "location": "Return GD",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-111-02-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-117-03-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-117-03-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-118-06-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-120-09-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-120-05-02-02",
+            "qty": 2
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-120-06-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-119-04-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-122-07-03-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-123-01-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-108-09-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-107-06-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-106-07-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-104-03-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-104-07-02-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-103-05-01-02",
+            "qty": 1
+          },
+          {
+            "location": "CLAGD/Stock/EXTGD/CLA-102-08-01-02",
+            "qty": 1
+          }
+        ]
+      }
+    ],
+    "aiPowered": true,
+    "model": "opus-4.5",
+    "analyzedAt": "2025-12-30T23:31:39.358Z",
+    "fileName": "PL ALMACÃN MRKU0711846.pdf"
+  }
+}

@@ -1,12 +1,8 @@
 import xmlrpc from 'xmlrpc';
+import { getOdooConfig } from './src/config/odooConfig.js';
 
-// TUS CREDENCIALES
-const ODOO_CONFIG = {
-  url: 'https://professional.illice.com',
-  db: 'illice_a0cc8584',
-  username: 'j.bernabe@illice.com',
-  password: '98b68f64a4ee2fd5362f16f3b0427a629877f80f',
-};
+// Obtener configuración de variables de entorno
+const ODOO_CONFIG = getOdooConfig();
 
 async function diagnoseInventory() {
     console.log("📡 Conectando a Odoo para mapear el Inventario...");

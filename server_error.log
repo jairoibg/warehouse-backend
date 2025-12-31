@@ -1,0 +1,11 @@
+file:///C:/Users/j.bernabe/warehouse-backend/src/services/optimizationService.js:210
+      const package = location.packages.find(p => 
+            ^^^^^^^
+
+SyntaxError: Unexpected strict mode reserved word
+    at compileSourceTextModule (node:internal/modules/esm/utils:344:16)
+    at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:105:18)
+    at #translate (node:internal/modules/esm/loader:534:12)
+    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:581:27)
+
+Node.js v22.17.0

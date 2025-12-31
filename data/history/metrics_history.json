@@ -1,0 +1,354 @@
+[
+  {
+    "timestamp": "2025-12-30T14:28:39.842Z",
+    "metrics": {
+      "totalValue": 613121.4104999593,
+      "totalLocations": 5080,
+      "occupiedLocations": 2686,
+      "totalStock": 736898,
+      "avgOccupancy": 41.919291338582674,
+      "abcDistribution": {
+        "A": 20833,
+        "B": 20371,
+        "C": 19292,
+        "D": 19201
+      }
+    }
+  },
+  {
+    "timestamp": "2025-12-30T15:28:38.738Z",
+    "metrics": {
+      "totalValue": 617040.542699948,
+      "totalLocations": 5080,
+      "occupiedLocations": 2682,
+      "totalStock": 732110,
+      "avgOccupancy": 41.65551181102362,
+      "abcDistribution": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 79365
+      }
+    }
+  },
+  {
+    "timestamp": "2025-12-30T16:01:31.372Z",
+    "metrics": {
+      "totalValue": 617040.542699948,
+      "totalLocations": 5080,
+      "occupiedLocations": 2682,
+      "totalStock": 732110,
+      "avgOccupancy": 41.65551181102362,
+      "abcDistribution": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 79365
+      }
+    }
+  },
+  {
+    "timestamp": "2025-12-30T16:11:49.703Z",
+    "metrics": {
+      "totalValue": 617040.542699948,
+      "totalLocations": 5080,
+      "occupiedLocations": 2682,
+      "totalStock": 732110,
+      "avgOccupancy": 41.65551181102362,
+      "abcDistribution": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 79365
+      }
+    }
+  },
+  {
+    "timestamp": "2025-12-30T16:15:54.842Z",
+    "metrics": {
+      "totalValue": 617040.542699948,
+      "totalLocations": 5080,
+      "occupiedLocations": 2682,
+      "totalStock": 732110,
+      "avgOccupancy": 41.65551181102362,
+      "abcDistribution": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 79365
+      }
+    }
+  },
+  {
+    "timestamp": "2025-12-30T16:19:46.128Z",
+    "metrics": {
+      "totalValue": 617040.542699948,
+      "totalLocations": 5080,
+      "occupiedLocations": 2682,
+      "totalStock": 732110,
+      "avgOccupancy": 41.65551181102362,
+      "abcDistribution": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 79365
+      }
+    }
+  },
+  {
+    "timestamp": "2025-12-30T16:57:21.500Z",
+    "metrics": {
+      "totalValue": 615152.9913999554,
+      "totalLocations": 5080,
+      "occupiedLocations": 2681,
+      "totalStock": 731936,
+      "avgOccupancy": 41.624015748031496,
+      "abcDistribution": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 79328
+      }
+    }
+  },
+  {
+    "timestamp": "2025-12-30T17:02:07.229Z",
+    "metrics": {
+      "totalValue": 615153.3224999554,
+      "totalLocations": 5080,
+      "occupiedLocations": 2681,
+      "totalStock": 731936,
+      "avgOccupancy": 41.624015748031496,
+      "abcDistribution": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 79328
+      }
+    }
+  },
+  {
+    "timestamp": "2025-12-30T17:34:06.138Z",
+    "metrics": {
+      "totalValue": 615153.3224999554,
+      "totalLocations": 5080,
+      "occupiedLocations": 2681,
+      "totalStock": 731936,
+      "avgOccupancy": 41.624015748031496,
+      "abcDistribution": {
+        "A": 21221,
+        "B": 20122,
+        "C": 26121,
+        "D": 11864
+      }
+    }
+  },
+  {
+    "timestamp": "2025-12-30T17:51:25.372Z",
+    "metrics": {
+      "totalValue": 615153.3224999554,
+      "totalLocations": 5080,
+      "occupiedLocations": 2681,
+      "totalStock": 731936,
+      "avgOccupancy": 41.624015748031496,
+      "abcDistribution": {
+        "A": 21221,
+        "B": 20122,
+        "C": 26121,
+        "D": 11864
+      }
+    }
+  },
+  {
+    "timestamp": "2025-12-30T18:33:07.968Z",
+    "metrics": {
+      "totalValue": 615153.3224999554,
+      "totalLocations": 5080,
+      "occupiedLocations": 2681,
+      "totalStock": 731936,
+      "avgOccupancy": 41.624015748031496,
+      "abcDistribution": {
+        "A": 21221,
+        "B": 20122,
+        "C": 26121,
+        "D": 11864
+      }
+    }
+  },
+  {
+    "timestamp": "2025-12-30T19:01:43.985Z",
+    "metrics": {
+      "totalValue": 3058349.077300229,
+      "totalLocations": 5080,
+      "occupiedLocations": 2681,
+      "totalStock": 731936,
+      "avgOccupancy": 41.624015748031496,
+      "abcDistribution": {
+        "A": 21221,
+        "B": 20122,
+        "C": 26121,
+        "D": 11864
+      }
+    }
+  },
+  {
+    "timestamp": "2025-12-30T19:09:10.804Z",
+    "metrics": {
+      "totalValue": 260188.35740001325,
+      "totalLocations": 5080,
+      "occupiedLocations": 486,
+      "totalStock": 33210,
+      "avgOccupancy": 5.084645669291339,
+      "abcDistribution": {
+        "A": 1172,
+        "B": 2549,
+        "C": 3586,
+        "D": 2212
+      }
+    }
+  },
+  {
+    "timestamp": "2025-12-30T19:16:43.458Z",
+    "metrics": {
+      "totalValue": 260188.35740001325,
+      "totalLocations": 5080,
+      "occupiedLocations": 486,
+      "totalStock": 33210,
+      "avgOccupancy": 5.084645669291339,
+      "abcDistribution": {
+        "A": 1172,
+        "B": 2549,
+        "C": 3586,
+        "D": 2212
+      }
+    }
+  },
+  {
+    "timestamp": "2025-12-30T19:21:30.249Z",
+    "metrics": {
+      "totalValue": 260188.35740001325,
+      "totalLocations": 5080,
+      "occupiedLocations": 486,
+      "totalStock": 33210,
+      "avgOccupancy": 5.084645669291339,
+      "abcDistribution": {
+        "A": 1172,
+        "B": 2549,
+        "C": 3586,
+        "D": 2212
+      }
+    }
+  },
+  {
+    "timestamp": "2025-12-30T22:33:01.431Z",
+    "metrics": {
+      "totalValue": 50289863.75924621,
+      "totalLocations": 5080,
+      "occupiedLocations": 2681,
+      "totalStock": 731936,
+      "avgOccupancy": 41.624015748031496,
+      "abcDistribution": {
+        "A": 21221,
+        "B": 20122,
+        "C": 26121,
+        "D": 11864
+      }
+    }
+  },
+  {
+    "timestamp": "2025-12-30T22:49:32.481Z",
+    "metrics": {
+      "totalValue": 0,
+      "totalLocations": 5080,
+      "occupiedLocations": 2074,
+      "totalStock": 492683,
+      "avgOccupancy": 28.570866141732285,
+      "abcDistribution": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 53824
+      }
+    }
+  },
+  {
+    "timestamp": "2025-12-30T22:50:30.224Z",
+    "metrics": {
+      "totalValue": 0,
+      "totalLocations": 5080,
+      "occupiedLocations": 2074,
+      "totalStock": 492683,
+      "avgOccupancy": 28.570866141732285,
+      "abcDistribution": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 53824
+      }
+    }
+  },
+  {
+    "timestamp": "2025-12-30T23:12:00.134Z",
+    "metrics": {
+      "totalValue": 50289863.75924621,
+      "totalLocations": 5080,
+      "occupiedLocations": 2681,
+      "totalStock": 731936,
+      "avgOccupancy": 41.624015748031496,
+      "abcDistribution": {
+        "A": 21169,
+        "B": 20174,
+        "C": 26121,
+        "D": 11864
+      }
+    }
+  },
+  {
+    "timestamp": "2025-12-30T23:24:14.143Z",
+    "metrics": {
+      "totalValue": 50289863.75924621,
+      "totalLocations": 5080,
+      "occupiedLocations": 2681,
+      "totalStock": 731936,
+      "avgOccupancy": 41.624015748031496,
+      "abcDistribution": {
+        "A": 21169,
+        "B": 20174,
+        "C": 26121,
+        "D": 11864
+      }
+    }
+  },
+  {
+    "timestamp": "2025-12-31T08:13:10.159Z",
+    "metrics": {
+      "totalValue": 50289863.75924621,
+      "totalLocations": 5080,
+      "occupiedLocations": 2681,
+      "totalStock": 731936,
+      "avgOccupancy": 41.624015748031496,
+      "abcDistribution": {
+        "A": 21169,
+        "B": 20174,
+        "C": 26121,
+        "D": 11864
+      }
+    }
+  },
+  {
+    "timestamp": "2025-12-31T09:16:53.738Z",
+    "metrics": {
+      "totalValue": 48931996.114992075,
+      "totalLocations": 5080,
+      "occupiedLocations": 2663,
+      "totalStock": 726485,
+      "avgOccupancy": 41.13287401574803,
+      "abcDistribution": {
+        "A": 20354,
+        "B": 20054,
+        "C": 26089,
+        "D": 11864
+      }
+    }
+  }
+]
