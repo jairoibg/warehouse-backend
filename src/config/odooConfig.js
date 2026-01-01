@@ -8,7 +8,7 @@ import 'dotenv/config';
 export function getOdooConfig() {
   const config = {
     url: process.env.ODOO_URL,
-    db: process.env.ODOO_DB || 'blackdivision',
+    db: 'blackdivision',
     username: process.env.ODOO_USERNAME,
     password: process.env.ODOO_PASSWORD,
   };

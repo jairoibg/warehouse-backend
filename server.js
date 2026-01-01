@@ -365,7 +365,7 @@ async function refreshPackingCache() {
 
   try {
     const odooUrl = process.env.ODOO_URL || 'https://professional.illice.com';
-    const odooDb = process.env.ODOO_DB || 'blackdivision';
+    const odooDb = 'blackdivision';
     const odooUsername = process.env.ODOO_USERNAME || 'j.bernabe@illice.com';
     const odooPassword = process.env.ODOO_PASSWORD || '98b68f64a4ee2fd5362f16f3b0427a629877f80f';
     
