@@ -24,6 +24,8 @@ const __dirname = path.dirname(__filename);
 //  CONFIGURACIÓN GENERAL
 // ==================================================================================
 const PORT = 4000;
+console.log('🔧 [ENV] ODOO_URL:', process.env.ODOO_URL);
+console.log('🔧 [ENV] ODOO_DB:', process.env.ODOO_DB);
 const SERVER_HOST = "localhost"; // Cambia a tu IP si accedes desde fuera
 
 const EXPORT_DIR = path.join(__dirname, "exports");
@@ -530,6 +532,7 @@ except Exception as e:
     });
 
     let aiText = aiResponse.choices[0].message.content || '';
+    console.log('📝 [GPT-4o RAW RESPONSE]:', aiText.substring(0, 2000));
     
     let parsedAI;
     try {
