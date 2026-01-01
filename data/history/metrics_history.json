@@ -366,5 +366,53 @@
         "D": 10564
       }
     }
+  },
+  {
+    "timestamp": "2025-12-31T11:15:24.396Z",
+    "metrics": {
+      "totalValue": 48657931.045513965,
+      "totalLocations": 5080,
+      "occupiedLocations": 2657,
+      "totalStock": 725076,
+      "avgOccupancy": 40.96161417322835,
+      "abcDistribution": {
+        "A": 20192,
+        "B": 19983,
+        "C": 26041,
+        "D": 11863
+      }
+    }
+  },
+  {
+    "timestamp": "2025-12-31T15:23:13.573Z",
+    "metrics": {
+      "totalValue": 48598708.731225766,
+      "totalLocations": 5080,
+      "occupiedLocations": 2657,
+      "totalStock": 724791,
+      "avgOccupancy": 40.906496062992126,
+      "abcDistribution": {
+        "A": 20126,
+        "B": 20022,
+        "C": 26035,
+        "D": 11840
+      }
+    }
+  },
+  {
+    "timestamp": "2026-01-01T11:27:32.659Z",
+    "metrics": {
+      "totalValue": 937995.193099933,
+      "totalLocations": 5080,
+      "occupiedLocations": 2654,
+      "totalStock": 724553,
+      "avgOccupancy": 43.69094488188976,
+      "abcDistribution": {
+        "A": 6512,
+        "B": 6360,
+        "C": 8600,
+        "D": 56522
+      }
+    }
   }
 ]
