@@ -1358,7 +1358,31 @@ app.post("/api/ai/report", async (req, res) => {
 //  ENDPOINTS CRUD DEVOLUCIONES B2B
 // ==================================================================================
 const DEVOLUCIONES_PATH = path.join(__dirname, "data", "devoluciones.json");
-
+// DEBUG: Verificar archivo devoluciones
+app.get("/api/devoluciones/debug", async (req, res) => {
+  try {
+    const exists = fsSync.existsSync(DEVOLUCIONES_PATH);
+    let content = null;
+    let fileSize = null;
+    
+    if (exists) {
+      const stats = fsSync.statSync(DEVOLUCIONES_PATH);
+      fileSize = stats.size;
+      const raw = await fs.readFile(DEVOLUCIONES_PATH, "utf8");
+      content = raw.substring(0, 500); // Primeros 500 chars
+    }
+    
+    res.json({
+      path: DEVOLUCIONES_PATH,
+      exists,
+      fileSize,
+      contentPreview: content,
+      __dirname
+    });
+  } catch (e) {
+    res.json({ error: e.message, path: DEVOLUCIONES_PATH });
+  }
+});
 // Helper para leer devoluciones
 async function readDevoluciones() {
   try {
