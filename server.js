@@ -806,6 +806,326 @@ const tools = [
 ];
 
 // ==================================================================================
+//  ⭐ ENDPOINTS PARA INFORMES SEMANALES/MENSUALES
+// ==================================================================================
+
+// ==================================================================================
+//  1. OCUPACIÓN DEL ALMACÉN (para informe)
+// ==================================================================================
+app.get("/api/reports/ocupacion", async (req, res) => {
+  try {
+    console.log('📊 [REPORTS] Extrayendo ocupación para informe...');
+    
+    const dataPath = path.join(__dirname, "data", "locations.json");
+    const raw = await fs.readFile(dataPath, "utf8");
+    const locations = JSON.parse(raw);
+    
+    // Calcular métricas globales
+    let totalUbicaciones = locations.length;
+    let ubicacionesOcupadas = 0;
+    let ubicacionesVacias = 0;
+    let stockTotal = 0;
+    let valorTotal = 0;
+    
+    // Agrupar por marca
+    const porMarca = {};
+    // Agrupar por mercado/división (BD=Black, GD=Gold, WD=White)
+    const porMercado = { BLACK: { ocupadas: 0, total: 0, stock: 0 }, GOLD: { ocupadas: 0, total: 0, stock: 0 }, WHITE: { ocupadas: 0, total: 0, stock: 0 }, OTROS: { ocupadas: 0, total: 0, stock: 0 } };
+    
+    locations.forEach(loc => {
+      const stock = loc.totalStock || 0;
+      const ocupada = stock > 0;
+      
+      if (ocupada) {
+        ubicacionesOcupadas++;
+      } else {
+        ubicacionesVacias++;
+      }
+      
+      stockTotal += stock;
+      
+      // Calcular valor
+      if (loc.packages) {
+        loc.packages.forEach(pkg => {
+          valorTotal += (pkg.qty || 0) * (pkg.cost || 0);
+        });
+      }
+      
+      // Detectar mercado por prefijo de ubicación
+      let mercado = 'OTROS';
+      const locId = (loc.id || '').toUpperCase();
+      if (locId.includes('BD') || locId.includes('BLACK') || locId.startsWith('CLA-BD')) mercado = 'BLACK';
+      else if (locId.includes('GD') || locId.includes('GOLD') || locId.startsWith('CLA-GD') || locId.startsWith('CLAGD')) mercado = 'GOLD';
+      else if (locId.includes('WD') || locId.includes('WHITE') || locId.startsWith('CLA-WD')) mercado = 'WHITE';
+      
+      porMercado[mercado].total++;
+      if (ocupada) porMercado[mercado].ocupadas++;
+      porMercado[mercado].stock += stock;
+      
+      // Por marca (brand del paquete)
+      const marca = loc.brand || 'SIN_MARCA';
+      if (!porMarca[marca]) {
+        porMarca[marca] = { ocupadas: 0, total: 0, stock: 0, valor: 0 };
+      }
+      porMarca[marca].total++;
+      if (ocupada) porMarca[marca].ocupadas++;
+      porMarca[marca].stock += stock;
+      
+      if (loc.packages) {
+        loc.packages.forEach(pkg => {
+          porMarca[marca].valor += (pkg.qty || 0) * (pkg.cost || 0);
+        });
+      }
+    });
+    
+    // Calcular porcentajes
+    const ocupacionPct = totalUbicaciones > 0 ? (ubicacionesOcupadas / totalUbicaciones * 100) : 0;
+    
+    Object.keys(porMercado).forEach(m => {
+      porMercado[m].porcentaje = porMercado[m].total > 0 
+        ? (porMercado[m].ocupadas / porMercado[m].total * 100).toFixed(1)
+        : 0;
+    });
+    
+    Object.keys(porMarca).forEach(m => {
+      porMarca[m].porcentaje = porMarca[m].total > 0
+        ? (porMarca[m].ocupadas / porMarca[m].total * 100).toFixed(1)
+        : 0;
+    });
+    
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      resumen: {
+        ocupacion_total_pct: parseFloat(ocupacionPct.toFixed(1)),
+        ubicaciones_ocupadas: ubicacionesOcupadas,
+        ubicaciones_vacias: ubicacionesVacias,
+        ubicaciones_totales: totalUbicaciones,
+        stock_total_unidades: stockTotal,
+        valor_total_eur: parseFloat(valorTotal.toFixed(2))
+      },
+      por_mercado: porMercado,
+      por_marca: porMarca
+    });
+    
+  } catch (error) {
+    console.error('❌ [REPORTS] Error ocupación:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ==================================================================================
+//  2. DEVOLUCIONES (para informe)
+// ==================================================================================
+app.get("/api/reports/devoluciones", async (req, res) => {
+  try {
+    console.log('📦 [REPORTS] Extrayendo devoluciones para informe...');
+    
+    const { desde, hasta } = req.query;
+    
+    // Fechas por defecto: última semana
+    const fechaHasta = hasta ? new Date(hasta) : new Date();
+    const fechaDesde = desde ? new Date(desde) : new Date(fechaHasta.getTime() - 7 * 24 * 60 * 60 * 1000);
+    
+    // Leer devoluciones del JSON
+    const devoluciones = await getDevoluciones();
+    
+    // Filtrar por rango de fechas
+    const filtradas = devoluciones.filter(d => {
+      const fecha = new Date(d.fecha_recepcion);
+      return fecha >= fechaDesde && fecha <= fechaHasta;
+    });
+    
+    // Separar B2B y B2C (asumiendo que todas en este sistema son B2B)
+    // Si tienes B2C en otro sitio, ajustar
+    const b2b = filtradas;
+    const b2c = []; // TODO: Si tienes devoluciones B2C en otro sistema
+    
+    // Agrupar por día
+    const porDia = {};
+    filtradas.forEach(d => {
+      const dia = d.fecha_recepcion.split('T')[0];
+      if (!porDia[dia]) {
+        porDia[dia] = { b2b: 0, b2c: 0, total: 0 };
+      }
+      porDia[dia].b2b++;
+      porDia[dia].total++;
+    });
+    
+    // Agrupar por empresa/división
+    const porCompany = {};
+    filtradas.forEach(d => {
+      const company = d.company || 'Sin empresa';
+      porCompany[company] = (porCompany[company] || 0) + 1;
+    });
+    
+    // Calcular métricas
+    const totalEntrada = filtradas.length;
+    const procesadas = filtradas.filter(d => d.estado === 'procesado').length;
+    const pendientes = filtradas.filter(d => d.estado === 'recibido').length;
+    
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      periodo: {
+        desde: fechaDesde.toISOString().split('T')[0],
+        hasta: fechaHasta.toISOString().split('T')[0]
+      },
+      entrada: {
+        total: totalEntrada,
+        b2b: b2b.length,
+        b2c: b2c.length
+      },
+      procesadas: {
+        total: procesadas,
+        b2b: procesadas, // Ajustar si tienes B2C
+        b2c: 0
+      },
+      metricas: {
+        ratio_procesamiento_pct: totalEntrada > 0 ? parseFloat((procesadas / totalEntrada * 100).toFixed(1)) : 100,
+        pendientes_estimados: pendientes
+      },
+      por_dia: porDia,
+      por_company: porCompany,
+      detalle_ultimas: filtradas.slice(0, 20).map(d => ({
+        id: d.id,
+        albaran: d.picking_name,
+        cliente: d.partner_name,
+        company: d.company,
+        fecha: d.fecha_recepcion,
+        estado: d.estado
+      }))
+    });
+    
+  } catch (error) {
+    console.error('❌ [REPORTS] Error devoluciones:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ==================================================================================
+//  3. RESUMEN COMPLETO PARA INFORME (un solo endpoint con todo)
+// ==================================================================================
+app.get("/api/reports/informe-semanal", async (req, res) => {
+  try {
+    console.log('📋 [REPORTS] Generando datos completos para informe semanal...');
+    
+    const { semana } = req.query; // Formato: YYYY-WXX (ej: 2025-W02)
+    
+    // Calcular fechas de la semana
+    let fechaDesde, fechaHasta;
+    if (semana) {
+      const [year, week] = semana.split('-W').map(Number);
+      fechaDesde = getDateOfISOWeek(week, year);
+      fechaHasta = new Date(fechaDesde.getTime() + 6 * 24 * 60 * 60 * 1000);
+    } else {
+      // Semana actual
+      const hoy = new Date();
+      const diaSemana = hoy.getDay() || 7;
+      fechaDesde = new Date(hoy);
+      fechaDesde.setDate(hoy.getDate() - diaSemana + 1);
+      fechaDesde.setHours(0, 0, 0, 0);
+      fechaHasta = new Date(fechaDesde);
+      fechaHasta.setDate(fechaDesde.getDate() + 6);
+      fechaHasta.setHours(23, 59, 59, 999);
+    }
+    
+    // Cargar datos
+    const dataPath = path.join(__dirname, "data", "locations.json");
+    const raw = await fs.readFile(dataPath, "utf8");
+    const locations = JSON.parse(raw);
+    
+    const devoluciones = await getDevoluciones();
+    
+    // --- OCUPACIÓN ---
+    let ubicacionesOcupadas = 0;
+    let stockTotal = 0;
+    let valorTotal = 0;
+    const porMercado = { BLACK: { ocupadas: 0, total: 0 }, GOLD: { ocupadas: 0, total: 0 }, WHITE: { ocupadas: 0, total: 0 } };
+    
+    locations.forEach(loc => {
+      const stock = loc.totalStock || 0;
+      const ocupada = stock > 0;
+      if (ocupada) ubicacionesOcupadas++;
+      stockTotal += stock;
+      
+      if (loc.packages) {
+        loc.packages.forEach(pkg => {
+          valorTotal += (pkg.qty || 0) * (pkg.cost || 0);
+        });
+      }
+      
+      // Mercado
+      const locId = (loc.id || '').toUpperCase();
+      let mercado = null;
+      if (locId.includes('BD') || locId.startsWith('CLA-BD')) mercado = 'BLACK';
+      else if (locId.includes('GD') || locId.startsWith('CLA-GD') || locId.startsWith('CLAGD')) mercado = 'GOLD';
+      else if (locId.includes('WD') || locId.startsWith('CLA-WD')) mercado = 'WHITE';
+      
+      if (mercado) {
+        porMercado[mercado].total++;
+        if (ocupada) porMercado[mercado].ocupadas++;
+      }
+    });
+    
+    // --- DEVOLUCIONES (filtradas por semana) ---
+    const devsSemana = devoluciones.filter(d => {
+      const fecha = new Date(d.fecha_recepcion);
+      return fecha >= fechaDesde && fecha <= fechaHasta;
+    });
+    
+    const devsEntrada = devsSemana.length;
+    const devsProcesadas = devsSemana.filter(d => d.estado === 'procesado').length;
+    
+    // --- RESULTADO ---
+    res.json({
+      success: true,
+      generado_en: new Date().toISOString(),
+      periodo: {
+        tipo: 'semanal',
+        desde: fechaDesde.toISOString().split('T')[0],
+        hasta: fechaHasta.toISOString().split('T')[0]
+      },
+      ocupacion_almacen: {
+        ocupacion_total_pct: locations.length > 0 ? parseFloat((ubicacionesOcupadas / locations.length * 100).toFixed(1)) : 0,
+        ubicaciones_ocupadas: ubicacionesOcupadas,
+        ubicaciones_totales: locations.length,
+        stock_unidades: stockTotal,
+        valor_eur: parseFloat(valorTotal.toFixed(2)),
+        por_mercado: Object.fromEntries(
+          Object.entries(porMercado).map(([k, v]) => [
+            k, 
+            { ...v, porcentaje: v.total > 0 ? parseFloat((v.ocupadas / v.total * 100).toFixed(1)) : 0 }
+          ])
+        )
+      },
+      devoluciones: {
+        entrada: { total: devsEntrada, b2b: devsEntrada, b2c: 0 },
+        procesadas: { total: devsProcesadas, b2b: devsProcesadas, b2c: 0 },
+        ratio_procesamiento_pct: devsEntrada > 0 ? parseFloat((devsProcesadas / devsEntrada * 100).toFixed(1)) : 100,
+        pendientes: devsEntrada - devsProcesadas
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ [REPORTS] Error informe semanal:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Helper para calcular fecha de semana ISO
+function getDateOfISOWeek(week, year) {
+  const simple = new Date(year, 0, 1 + (week - 1) * 7);
+  const dow = simple.getDay();
+  const ISOweekStart = simple;
+  if (dow <= 4)
+    ISOweekStart.setDate(simple.getDate() - simple.getDay() + 1);
+  else
+    ISOweekStart.setDate(simple.getDate() + 8 - simple.getDay());
+  return ISOweekStart;
+}
+
+// ==================================================================================
 //  ENDPOINT: STRATEGIC CHAT
 // ==================================================================================
 app.post("/api/strategic-chat", async (req, res) => {
