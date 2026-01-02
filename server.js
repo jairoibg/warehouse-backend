@@ -806,8 +806,43 @@ const tools = [
 ];
 
 // ==================================================================================
-//  ⭐ ENDPOINTS PARA INFORMES SEMANALES/MENSUALES
+//  ⭐ ENDPOINTS PARA INFORMES SEMANALES/MENSUALES - v2
+//  Añadir este código a tu server.js del Gemelo Digital ANTES de server.listen()
 // ==================================================================================
+
+// ==================================================================================
+//  HELPER: Leer devoluciones (con manejo de errores)
+// ==================================================================================
+async function getDevolucionesForReports() {
+  try {
+    // Intentar leer del archivo de devoluciones si existe
+    const devolucionesPath = path.join(__dirname, "data", "devoluciones.json");
+    
+    // Verificar si el archivo existe
+    try {
+      await fs.access(devolucionesPath);
+      const raw = await fs.readFile(devolucionesPath, "utf8");
+      const data = JSON.parse(raw);
+      // Si es un array, devolverlo directamente
+      // Si tiene una propiedad con las devoluciones, extraerla
+      if (Array.isArray(data)) {
+        return data;
+      } else if (data.devoluciones) {
+        return data.devoluciones;
+      } else if (data.items) {
+        return data.items;
+      }
+      return [];
+    } catch (e) {
+      // Archivo no existe, devolver array vacío
+      console.log('📦 [REPORTS] No existe archivo devoluciones.json, devolviendo vacío');
+      return [];
+    }
+  } catch (error) {
+    console.error('❌ [REPORTS] Error leyendo devoluciones:', error);
+    return [];
+  }
+}
 
 // ==================================================================================
 //  1. OCUPACIÓN DEL ALMACÉN (para informe)
@@ -915,7 +950,7 @@ app.get("/api/reports/ocupacion", async (req, res) => {
 });
 
 // ==================================================================================
-//  2. DEVOLUCIONES (para informe)
+//  2. DEVOLUCIONES (para informe) - VERSIÓN CORREGIDA
 // ==================================================================================
 app.get("/api/reports/devoluciones", async (req, res) => {
   try {
@@ -927,24 +962,50 @@ app.get("/api/reports/devoluciones", async (req, res) => {
     const fechaHasta = hasta ? new Date(hasta) : new Date();
     const fechaDesde = desde ? new Date(desde) : new Date(fechaHasta.getTime() - 7 * 24 * 60 * 60 * 1000);
     
-    // Leer devoluciones del JSON
-    const devoluciones = await getDevoluciones();
+    // Leer devoluciones del JSON (con manejo de errores)
+    const devoluciones = await getDevolucionesForReports();
+    
+    // Si no hay devoluciones, devolver respuesta vacía pero válida
+    if (!devoluciones || devoluciones.length === 0) {
+      console.log('📦 [REPORTS] No hay devoluciones registradas');
+      return res.json({
+        success: true,
+        timestamp: new Date().toISOString(),
+        periodo: {
+          desde: fechaDesde.toISOString().split('T')[0],
+          hasta: fechaHasta.toISOString().split('T')[0]
+        },
+        entrada: { total: 0, b2b: 0, b2c: 0 },
+        procesadas: { total: 0, b2b: 0, b2c: 0 },
+        metricas: {
+          ratio_procesamiento_pct: 100,
+          pendientes_estimados: 0
+        },
+        por_dia: {},
+        por_company: {},
+        detalle_ultimas: [],
+        mensaje: "No hay devoluciones registradas en el sistema"
+      });
+    }
     
     // Filtrar por rango de fechas
     const filtradas = devoluciones.filter(d => {
-      const fecha = new Date(d.fecha_recepcion);
+      const fechaField = d.fecha_recepcion || d.fecha || d.date || d.created_at;
+      if (!fechaField) return false;
+      const fecha = new Date(fechaField);
       return fecha >= fechaDesde && fecha <= fechaHasta;
     });
     
-    // Separar B2B y B2C (asumiendo que todas en este sistema son B2B)
-    // Si tienes B2C en otro sitio, ajustar
+    // Separar B2B y B2C
     const b2b = filtradas;
-    const b2c = []; // TODO: Si tienes devoluciones B2C en otro sistema
+    const b2c = [];
     
     // Agrupar por día
     const porDia = {};
     filtradas.forEach(d => {
-      const dia = d.fecha_recepcion.split('T')[0];
+      const fechaField = d.fecha_recepcion || d.fecha || d.date || d.created_at;
+      if (!fechaField) return;
+      const dia = fechaField.split('T')[0];
       if (!porDia[dia]) {
         porDia[dia] = { b2b: 0, b2c: 0, total: 0 };
       }
@@ -955,14 +1016,18 @@ app.get("/api/reports/devoluciones", async (req, res) => {
     // Agrupar por empresa/división
     const porCompany = {};
     filtradas.forEach(d => {
-      const company = d.company || 'Sin empresa';
+      const company = d.company || d.empresa || 'Sin empresa';
       porCompany[company] = (porCompany[company] || 0) + 1;
     });
     
     // Calcular métricas
     const totalEntrada = filtradas.length;
-    const procesadas = filtradas.filter(d => d.estado === 'procesado').length;
-    const pendientes = filtradas.filter(d => d.estado === 'recibido').length;
+    const procesadas = filtradas.filter(d => 
+      d.estado === 'procesado' || d.status === 'processed' || d.state === 'done'
+    ).length;
+    const pendientes = filtradas.filter(d => 
+      d.estado === 'recibido' || d.estado === 'pendiente' || d.status === 'pending'
+    ).length;
     
     res.json({
       success: true,
@@ -978,7 +1043,7 @@ app.get("/api/reports/devoluciones", async (req, res) => {
       },
       procesadas: {
         total: procesadas,
-        b2b: procesadas, // Ajustar si tienes B2C
+        b2b: procesadas,
         b2c: 0
       },
       metricas: {
@@ -989,11 +1054,11 @@ app.get("/api/reports/devoluciones", async (req, res) => {
       por_company: porCompany,
       detalle_ultimas: filtradas.slice(0, 20).map(d => ({
         id: d.id,
-        albaran: d.picking_name,
-        cliente: d.partner_name,
-        company: d.company,
-        fecha: d.fecha_recepcion,
-        estado: d.estado
+        albaran: d.picking_name || d.albaran || d.name,
+        cliente: d.partner_name || d.cliente,
+        company: d.company || d.empresa,
+        fecha: d.fecha_recepcion || d.fecha || d.date,
+        estado: d.estado || d.status || d.state
       }))
     });
     
@@ -1030,12 +1095,13 @@ app.get("/api/reports/informe-semanal", async (req, res) => {
       fechaHasta.setHours(23, 59, 59, 999);
     }
     
-    // Cargar datos
+    // Cargar datos de ubicaciones
     const dataPath = path.join(__dirname, "data", "locations.json");
     const raw = await fs.readFile(dataPath, "utf8");
     const locations = JSON.parse(raw);
     
-    const devoluciones = await getDevoluciones();
+    // Cargar devoluciones (con manejo de errores)
+    const devoluciones = await getDevolucionesForReports();
     
     // --- OCUPACIÓN ---
     let ubicacionesOcupadas = 0;
@@ -1069,13 +1135,22 @@ app.get("/api/reports/informe-semanal", async (req, res) => {
     });
     
     // --- DEVOLUCIONES (filtradas por semana) ---
-    const devsSemana = devoluciones.filter(d => {
-      const fecha = new Date(d.fecha_recepcion);
-      return fecha >= fechaDesde && fecha <= fechaHasta;
-    });
+    let devsEntrada = 0;
+    let devsProcesadas = 0;
     
-    const devsEntrada = devsSemana.length;
-    const devsProcesadas = devsSemana.filter(d => d.estado === 'procesado').length;
+    if (devoluciones && devoluciones.length > 0) {
+      const devsSemana = devoluciones.filter(d => {
+        const fechaField = d.fecha_recepcion || d.fecha || d.date || d.created_at;
+        if (!fechaField) return false;
+        const fecha = new Date(fechaField);
+        return fecha >= fechaDesde && fecha <= fechaHasta;
+      });
+      
+      devsEntrada = devsSemana.length;
+      devsProcesadas = devsSemana.filter(d => 
+        d.estado === 'procesado' || d.status === 'processed' || d.state === 'done'
+      ).length;
+    }
     
     // --- RESULTADO ---
     res.json({
@@ -1124,6 +1199,10 @@ function getDateOfISOWeek(week, year) {
     ISOweekStart.setDate(simple.getDate() + 8 - simple.getDay());
   return ISOweekStart;
 }
+
+// ==================================================================================
+//  FIN ENDPOINTS REPORTS v2
+// ==================================================================================
 
 // ==================================================================================
 //  ENDPOINT: STRATEGIC CHAT
