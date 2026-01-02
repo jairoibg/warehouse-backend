@@ -1354,7 +1354,218 @@ app.post("/api/ai/report", async (req, res) => {
     res.json({ text: `###  ⚠️  Error Técnico\n\n${err.message}` });
   }
 });
+// ==================================================================================
+//  ENDPOINTS CRUD DEVOLUCIONES B2B
+// ==================================================================================
+const DEVOLUCIONES_PATH = path.join(__dirname, "data", "devoluciones.json");
 
+// Helper para leer devoluciones
+async function readDevoluciones() {
+  try {
+    const raw = await fs.readFile(DEVOLUCIONES_PATH, "utf8");
+    return JSON.parse(raw);
+  } catch (e) {
+    return [];
+  }
+}
+
+// Helper para guardar devoluciones
+async function saveDevoluciones(data) {
+  await fs.writeFile(DEVOLUCIONES_PATH, JSON.stringify(data, null, 2), "utf8");
+}
+
+// GET /api/devoluciones - Listar devoluciones
+app.get("/api/devoluciones", async (req, res) => {
+  try {
+    const { company, limit = 50 } = req.query;
+    let devoluciones = await readDevoluciones();
+    
+    if (company) {
+      devoluciones = devoluciones.filter(d => d.company?.toLowerCase() === company.toLowerCase());
+    }
+    
+    devoluciones.sort((a, b) => new Date(b.fecha_recepcion) - new Date(a.fecha_recepcion));
+    devoluciones = devoluciones.slice(0, parseInt(limit));
+    
+    res.json({ devoluciones });
+  } catch (error) {
+    console.error('❌ [DEVOLUCIONES] Error listando:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/devoluciones/stats - Estadísticas
+app.get("/api/devoluciones/stats", async (req, res) => {
+  try {
+    const devoluciones = await readDevoluciones();
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+    
+    const contadores = {
+      hoy: devoluciones.filter(d => new Date(d.fecha_recepcion) >= today).length,
+      semana: devoluciones.filter(d => new Date(d.fecha_recepcion) >= weekAgo).length,
+      mes: devoluciones.filter(d => new Date(d.fecha_recepcion) >= monthAgo).length,
+      total: devoluciones.length
+    };
+    
+    const recentDevs = devoluciones.filter(d => new Date(d.fecha_recepcion) >= monthAgo);
+    const porCompanyMap = {};
+    recentDevs.forEach(d => {
+      const c = d.company || 'Sin empresa';
+      porCompanyMap[c] = (porCompanyMap[c] || 0) + 1;
+    });
+    const por_company = Object.entries(porCompanyMap).map(([company, count]) => ({ company, count }));
+    
+    const ultimas = devoluciones
+      .sort((a, b) => new Date(b.fecha_recepcion) - new Date(a.fecha_recepcion))
+      .slice(0, 5);
+    
+    res.json({ contadores, por_company, ultimas });
+  } catch (error) {
+    console.error('❌ [DEVOLUCIONES] Error stats:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/devoluciones/buscar - Buscar en Odoo
+app.get("/api/devoluciones/buscar", async (req, res) => {
+  try {
+    const { q, tipo = 'todos' } = req.query;
+    
+    if (!q || q.length < 2) {
+      return res.json({ resultados: [], error: 'Query muy corta' });
+    }
+    
+    console.log(`🔍 [DEVOLUCIONES] Buscando "${q}" tipo=${tipo}`);
+    
+    const odooUrl = process.env.ODOO_URL || 'https://professional.illice.com';
+    const odooDb = 'blackdivision';
+    const odooUsername = process.env.ODOO_USERNAME || 'j.bernabe@illice.com';
+    const odooPassword = process.env.ODOO_PASSWORD || '98b68f64a4ee2fd5362f16f3b0427a629877f80f';
+    
+    const common = xmlrpc.createSecureClient({ url: `${odooUrl}/xmlrpc/2/common` });
+    const models = xmlrpc.createSecureClient({ url: `${odooUrl}/xmlrpc/2/object` });
+    
+    const uid = await new Promise((resolve, reject) => {
+      common.methodCall('authenticate', [odooDb, odooUsername, odooPassword, {}], (err, res) => err ? reject(err) : resolve(res));
+    });
+    
+    if (!uid) {
+      return res.json({ resultados: [], error: 'Error autenticación Odoo' });
+    }
+    
+    let domain = [];
+    
+    if (tipo === 'pedido') {
+      domain = [['origin', 'ilike', q]];
+    } else if (tipo === 'albaran') {
+      domain = [['name', 'ilike', q]];
+    } else if (tipo === 'cliente') {
+      domain = [['partner_id.name', 'ilike', q]];
+    } else if (tipo === 'paquete') {
+      domain = [['name', 'ilike', q]];
+    } else {
+      domain = ['|', '|', '|', 
+        ['name', 'ilike', q],
+        ['origin', 'ilike', q],
+        ['partner_id.name', 'ilike', q],
+        ['carrier_tracking_ref', 'ilike', q]
+      ];
+    }
+    
+    domain.push(['picking_type_id.code', '=', 'outgoing']);
+    
+    const pickings = await new Promise((resolve, reject) => {
+      models.methodCall('execute_kw', [
+        odooDb, uid, odooPassword,
+        'stock.picking', 'search_read',
+        [domain],
+        { 
+          fields: ['id', 'name', 'origin', 'partner_id', 'date_done', 'carrier_id', 'carrier_tracking_ref', 'company_id'],
+          limit: 20,
+          order: 'date_done desc'
+        }
+      ], (err, res) => err ? reject(err) : resolve(res));
+    });
+    
+    const devoluciones = await readDevoluciones();
+    const devPickingIds = new Set(devoluciones.map(d => d.picking_id));
+    
+    const resultados = pickings.map(p => {
+      let company = 'Gold';
+      if (p.name?.includes('CLABD')) company = 'Black';
+      else if (p.name?.includes('CLAWD')) company = 'White';
+      
+      return {
+        picking_id: p.id,
+        albaran: p.name,
+        pedido: p.origin,
+        cliente: p.partner_id ? p.partner_id[1] : 'Sin cliente',
+        fecha_envio: p.date_done,
+        carrier: p.carrier_id ? p.carrier_id[1] : null,
+        tracking: p.carrier_tracking_ref,
+        company,
+        devolucion_existente: devPickingIds.has(p.id) ? devoluciones.find(d => d.picking_id === p.id) : null
+      };
+    });
+    
+    console.log(`✅ [DEVOLUCIONES] ${resultados.length} resultados encontrados`);
+    res.json({ resultados });
+    
+  } catch (error) {
+    console.error('❌ [DEVOLUCIONES] Error buscando:', error);
+    res.json({ resultados: [], error: error.message });
+  }
+});
+
+// POST /api/devoluciones - Registrar nueva devolución
+app.post("/api/devoluciones", async (req, res) => {
+  try {
+    const { picking_id, picking_name, partner_name, company, tracking_retorno, recibido_por, notas } = req.body;
+    
+    if (!picking_id || !picking_name) {
+      return res.status(400).json({ success: false, error: 'Faltan datos obligatorios' });
+    }
+    
+    const devoluciones = await readDevoluciones();
+    
+    if (devoluciones.some(d => d.picking_id === picking_id)) {
+      return res.json({ success: false, error: 'Esta devolución ya está registrada' });
+    }
+    
+    const maxId = devoluciones.reduce((max, d) => Math.max(max, d.id || 0), 0);
+    const now = new Date();
+    
+    const nuevaDevolucion = {
+      id: maxId + 1,
+      picking_id,
+      picking_name,
+      partner_name,
+      company,
+      tracking_retorno: tracking_retorno || '',
+      fecha_recepcion: now.toISOString().replace('T', ' ').substring(0, 19),
+      recibido_por: recibido_por || 'Operario',
+      notas: notas || '',
+      created_at: now.toISOString().replace('T', ' ').substring(0, 19)
+    };
+    
+    devoluciones.unshift(nuevaDevolucion);
+    await saveDevoluciones(devoluciones);
+    
+    console.log(`✅ [DEVOLUCIONES] Registrada: ${picking_name} por ${recibido_por}`);
+    res.json({ success: true, devolucion: nuevaDevolucion });
+    
+  } catch (error) {
+    console.error('❌ [DEVOLUCIONES] Error registrando:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ==================================================================================
+//  FIN ENDPOINTS DEVOLUCIONES
+// ==================================================================================
 // --- SERVIDOR BASE ---
 app.get("/api/locations", async (req, res) => {
   const dataPath = path.join(__dirname, "data", "locations.json");
