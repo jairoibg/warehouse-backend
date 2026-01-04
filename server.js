@@ -1590,9 +1590,9 @@ app.post("/api/devoluciones", async (req, res) => {
 // ==================================================================================
 //  FIN ENDPOINTS DEVOLUCIONES
 // ==================================================================================
+
 // ==================================================================================
 //  ENDPOINT OCUPACIÓN V2 - CON B2C Y B2B CORRECTOS
-//  Añadir este código a tu server.js del Gemelo Digital
 // ==================================================================================
 
 app.get("/api/reports/ocupacion-v2", async (req, res) => {
@@ -1702,13 +1702,39 @@ app.get("/api/reports/ocupacion-v2", async (req, res) => {
     const totalPct = totalUbicaciones > 0 ? (totalOcupadas / totalUbicaciones * 100) : 0;
     
     // =========================================================================
+    // CALCULAR POR MERCADO CON PORCENTAJES
+    // =========================================================================
+    const porMercadoFinal = {
+      BLACK: {
+        ocupadas: (b2cPorMarca.BLACK?.ocupadas || 0) + (b2bPorMarca.BLACK?.ocupadas || 0),
+        total: (b2cPorMarca.BLACK?.total || 0) + (b2bPorMarca.BLACK?.total || 0),
+        stock: (b2cPorMarca.BLACK?.stock || 0) + (b2bPorMarca.BLACK?.stock || 0),
+      },
+      GOLD: {
+        ocupadas: (b2cPorMarca.GOLD?.ocupadas || 0) + (b2bPorMarca.GOLD?.ocupadas || 0),
+        total: (b2cPorMarca.GOLD?.total || 0) + (b2bPorMarca.GOLD?.total || 0),
+        stock: (b2cPorMarca.GOLD?.stock || 0) + (b2bPorMarca.GOLD?.stock || 0),
+      },
+      WHITE: {
+        ocupadas: (b2cPorMarca.WHITE?.ocupadas || 0) + (b2bPorMarca.WHITE?.ocupadas || 0),
+        total: (b2cPorMarca.WHITE?.total || 0) + (b2bPorMarca.WHITE?.total || 0),
+        stock: (b2cPorMarca.WHITE?.stock || 0) + (b2bPorMarca.WHITE?.stock || 0),
+      }
+    };
+    
+    Object.keys(porMercadoFinal).forEach(m => {
+      porMercadoFinal[m].porcentaje = porMercadoFinal[m].total > 0 
+        ? parseFloat((porMercadoFinal[m].ocupadas / porMercadoFinal[m].total * 100).toFixed(1))
+        : 0;
+    });
+    
+    // =========================================================================
     // RESPUESTA
     // =========================================================================
     res.json({
       success: true,
       timestamp: new Date().toISOString(),
       
-      // Resumen total (B2C + B2B)
       resumen: {
         ocupacion_total_pct: parseFloat(totalPct.toFixed(1)),
         ubicaciones_ocupadas: totalOcupadas,
@@ -1718,7 +1744,6 @@ app.get("/api/reports/ocupacion-v2", async (req, res) => {
         valor_total_eur: parseFloat(totalValor.toFixed(2))
       },
       
-      // Desglose B2C
       b2c: {
         ocupacion_pct: parseFloat(b2cPct.toFixed(1)),
         ubicaciones_ocupadas: b2cOcupadas,
@@ -1728,7 +1753,6 @@ app.get("/api/reports/ocupacion-v2", async (req, res) => {
         por_marca: b2cPorMarca
       },
       
-      // Desglose B2B
       b2b: {
         ocupacion_pct: parseFloat(b2bPct.toFixed(1)),
         ubicaciones_ocupadas: b2bOcupadas,
@@ -1738,32 +1762,8 @@ app.get("/api/reports/ocupacion-v2", async (req, res) => {
         por_marca: b2bPorMarca
       },
       
-      // Por mercado (BLACK, GOLD, WHITE) - mantener compatibilidad
-      // Ahora calculado desde B2C + B2B combinados
-      por_mercado: {
-        BLACK: {
-          ocupadas: (b2cPorMarca.BLACK?.ocupadas || 0) + (b2bPorMarca.BLACK?.ocupadas || 0),
-          total: (b2cPorMarca.BLACK?.total || 0) + (b2bPorMarca.BLACK?.total || 0),
-          stock: (b2cPorMarca.BLACK?.stock || 0) + (b2bPorMarca.BLACK?.stock || 0),
-          porcentaje: 0 // Se calcula abajo
-        },
-        GOLD: {
-          ocupadas: (b2cPorMarca.GOLD?.ocupadas || 0) + (b2bPorMarca.GOLD?.ocupadas || 0),
-          total: (b2cPorMarca.GOLD?.total || 0) + (b2bPorMarca.GOLD?.total || 0),
-          stock: (b2cPorMarca.GOLD?.stock || 0) + (b2bPorMarca.GOLD?.stock || 0),
-          porcentaje: 0
-        },
-        WHITE: {
-          ocupadas: (b2cPorMarca.WHITE?.ocupadas || 0) + (b2bPorMarca.WHITE?.ocupadas || 0),
-          total: (b2cPorMarca.WHITE?.total || 0) + (b2bPorMarca.WHITE?.total || 0),
-          stock: (b2cPorMarca.WHITE?.stock || 0) + (b2bPorMarca.WHITE?.stock || 0),
-          porcentaje: 0
-        }
-      }
+      por_mercado: porMercadoFinal
     });
-    
-    // Calcular porcentajes por mercado
-    const response = res._body ? JSON.parse(res._body) : null;
     
   } catch (error) {
     console.error('❌ [REPORTS] Error ocupación v2:', error);
@@ -1771,8 +1771,6 @@ app.get("/api/reports/ocupacion-v2", async (req, res) => {
   }
 });
 
-// También actualizar el endpoint original para que use la misma lógica
-// O simplemente hacer que /api/reports/ocupacion redirija a /api/reports/ocupacion-v2
 // --- SERVIDOR BASE ---
 app.get("/api/locations", async (req, res) => {
   const dataPath = path.join(__dirname, "data", "locations.json");
