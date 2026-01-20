@@ -1709,7 +1709,7 @@ app.get("/api/movements", (req, res) => res.json(movements.slice(0, 50)));
 // ==================================================================================
 //  NUEVO: MOVIMIENTOS POR UBICACIÓN (ENTRADAS/SALIDAS)
 // ==================================================================================
-app.get("/api/movements/:locationId", async (req, res) => {
+app.get("/api/movements/:locationId(*)", async (req, res) => {
   try {
     const { locationId } = req.params;
     const { days = 90 } = req.query; // Por defecto últimos 90 días
