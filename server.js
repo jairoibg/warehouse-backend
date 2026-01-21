@@ -191,7 +191,8 @@ async function buscarEnOdoo(query, tipo = 'todos') {
   // Construir dominio de búsqueda según el tipo
   let domain = [
     ['picking_type_id.code', '=', 'outgoing'],
-    ['state', '=', 'done']
+    ['state', '=', 'done'],
+    ['name', '=like', 'S%']  // Solo pickings B2B (empiezan por S)
   ];
 
   const q = query.trim();
