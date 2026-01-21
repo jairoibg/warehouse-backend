@@ -1,4 +1,3 @@
-import 'dotenv/config';
 import xmlrpc from 'xmlrpc';
 import fs from 'fs/promises';
 import path from 'path';
@@ -7,10 +6,10 @@ import { explanationEngine } from './explanation_engine.js';
 
 // --- CONFIGURACIÓN ODOO (SEGURA) ---
 const ODOO_CONFIG = {
-  url: process.env.ODOO_URL,
-  db: process.env.ODOO_DB,
-  username: process.env.ODOO_USERNAME,
-  password: process.env.ODOO_PASSWORD,
+  url: 'https://blackdivision.processcontrol.sh',
+  db: 'blackdivision',
+  username: 'j.bernabe@illice.com',
+  password: '98b68f64a4ee2fd5362f16f3b0427a629877f80f',
 };
 
 const __filename = fileURLToPath(import.meta.url);
