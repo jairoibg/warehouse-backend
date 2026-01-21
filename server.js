@@ -29,7 +29,7 @@ const __dirname = path.dirname(__filename);
 console.log("========== DIAGNÓSTICO DE VARIABLES ==========");
 console.log("PORT:", process.env.PORT);
 console.log("ODOO_URL:", process.env.ODOO_URL ? "✅ Configurada" : "❌ NO encontrada");
-console.log("ODOO_DB:", process.env.ODOO_DB ? "✅ Configurada" : "❌ NO encontrada");
+console.log("ODOO_DB:", process.env.ODOO_DATABASE ? "✅ Configurada" : "❌ NO encontrada");
 console.log("ODOO_USERNAME:", process.env.ODOO_USERNAME ? "✅ Configurada" : "❌ NO encontrada");
 console.log("ODOO_PASSWORD:", process.env.ODOO_PASSWORD ? "✅ Configurada" : "❌ NO encontrada");
 console.log("ANTHROPIC_API_KEY:", process.env.ANTHROPIC_API_KEY ? "✅ Configurada (" + process.env.ANTHROPIC_API_KEY.substring(0,15) + "...)" : "❌ NO encontrada");
@@ -114,13 +114,13 @@ async function odooExecute(method, model, operation, params, options = {}) {
 
   const uid = await new Promise((resolve, reject) => {
     common.methodCall('authenticate', [
-      process.env.ODOO_DB, process.env.ODOO_USERNAME, process.env.ODOO_PASSWORD, {}
+      process.env.ODOO_DATABASE, process.env.ODOO_USERNAME, process.env.ODOO_PASSWORD, {}
     ], (err, res) => err ? reject(err) : resolve(res));
   });
 
   return new Promise((resolve, reject) => {
     models.methodCall('execute_kw', [
-      process.env.ODOO_DB, uid, process.env.ODOO_PASSWORD,
+      process.env.ODOO_DATABASE, uid, process.env.ODOO_PASSWORD,
       model, operation, params, options
     ], (err, res) => err ? reject(err) : resolve(res));
   });
@@ -184,7 +184,7 @@ async function buscarEnOdoo(query, tipo = 'todos') {
   
   const uid = await new Promise((resolve, reject) => {
     common.methodCall('authenticate', [
-      process.env.ODOO_DB, process.env.ODOO_USERNAME, process.env.ODOO_PASSWORD, {}
+      process.env.ODOO_DATABASE, process.env.ODOO_USERNAME, process.env.ODOO_PASSWORD, {}
     ], (err, res) => err ? reject(err) : resolve(res));
   });
 
@@ -225,7 +225,7 @@ async function buscarEnOdoo(query, tipo = 'todos') {
   try {
     const pickings = await new Promise((resolve, reject) => {
       models.methodCall('execute_kw', [
-        process.env.ODOO_DB, uid, process.env.ODOO_PASSWORD,
+        process.env.ODOO_DATABASE, uid, process.env.ODOO_PASSWORD,
         'stock.picking', 'search_read',
         [domain],
         { 
@@ -1413,14 +1413,14 @@ app.get("/api/analytics/icc", async (req, res) => {
     
     const uid = await new Promise((resolve, reject) => {
       common.methodCall('authenticate', [
-        process.env.ODOO_DB, process.env.ODOO_USERNAME, process.env.ODOO_PASSWORD, {}
+        process.env.ODOO_DATABASE, process.env.ODOO_USERNAME, process.env.ODOO_PASSWORD, {}
       ], (err, res) => err ? reject(err) : resolve(res));
     });
 
     // Obtener stock
     const stockQuants = await new Promise((resolve, reject) => {
       models.methodCall('execute_kw', [
-        process.env.ODOO_DB, uid, process.env.ODOO_PASSWORD,
+        process.env.ODOO_DATABASE, uid, process.env.ODOO_PASSWORD,
         'stock.quant', 'search_read',
         [[['location_id.usage', '=', 'internal'], ['quantity', '>', 0]]],
         { fields: ['product_id', 'quantity', 'value', 'location_id'], limit: 50000 }
@@ -1432,7 +1432,7 @@ app.get("/api/analytics/icc", async (req, res) => {
     
     const products = await new Promise((resolve, reject) => {
       models.methodCall('execute_kw', [
-        process.env.ODOO_DB, uid, process.env.ODOO_PASSWORD,
+        process.env.ODOO_DATABASE, uid, process.env.ODOO_PASSWORD,
         'product.product', 'search_read',
         [[['id', 'in', productIds]]],
         { fields: ['id', 'sale_season_id', 'standard_price', 'list_price'] }
@@ -1576,7 +1576,7 @@ app.get("/api/analytics/weights-2025", async (req, res) => {
     
     const uid = await new Promise((resolve, reject) => {
       common.methodCall('authenticate', [
-        process.env.ODOO_DB, process.env.ODOO_USERNAME, process.env.ODOO_PASSWORD, {}
+        process.env.ODOO_DATABASE, process.env.ODOO_USERNAME, process.env.ODOO_PASSWORD, {}
       ], (err, res) => err ? reject(err) : resolve(res));
     });
 
@@ -1600,7 +1600,7 @@ app.get("/api/analytics/weights-2025", async (req, res) => {
         const slice = productIds.slice(i, i + 2000);
         const batch = await new Promise((resolve, reject) => {
             models.methodCall('execute_kw', [
-                process.env.ODOO_DB, uid, process.env.ODOO_PASSWORD,
+                process.env.ODOO_DATABASE, uid, process.env.ODOO_PASSWORD,
                 'product.product', 'read',
                 [slice],
                 { fields: ['default_code', 'weight'] } 
@@ -1727,7 +1727,7 @@ app.get("/api/movements/:locationId(*)", async (req, res) => {
     
     const uid = await new Promise((resolve, reject) => {
       common.methodCall('authenticate', [
-        process.env.ODOO_DB, process.env.ODOO_USERNAME, process.env.ODOO_PASSWORD, {}
+        process.env.ODOO_DATABASE, process.env.ODOO_USERNAME, process.env.ODOO_PASSWORD, {}
       ], (err, res) => err ? reject(err) : resolve(res));
     });
 
@@ -1739,7 +1739,7 @@ app.get("/api/movements/:locationId(*)", async (req, res) => {
 
     const moveLines = await new Promise((resolve, reject) => {
       models.methodCall('execute_kw', [
-        process.env.ODOO_DB, uid, process.env.ODOO_PASSWORD,
+        process.env.ODOO_DATABASE, uid, process.env.ODOO_PASSWORD,
         'stock.move.line', 'search_read',
         [[
           ['state', '=', 'done'],
@@ -1881,7 +1881,7 @@ async function refreshPackingCache() {
     
     const uid = await new Promise((resolve, reject) => {
       common.methodCall('authenticate', [
-        process.env.ODOO_DB, process.env.ODOO_USERNAME, process.env.ODOO_PASSWORD, {}
+        process.env.ODOO_DATABASE, process.env.ODOO_USERNAME, process.env.ODOO_PASSWORD, {}
       ], (err, res) => err ? reject(err) : resolve(res));
     });
 
@@ -1889,7 +1889,7 @@ async function refreshPackingCache() {
     console.log('  📦 Descargando productos...');
     const products = await new Promise((resolve, reject) => {
       models.methodCall('execute_kw', [
-        process.env.ODOO_DB, uid, process.env.ODOO_PASSWORD,
+        process.env.ODOO_DATABASE, uid, process.env.ODOO_PASSWORD,
         'product.product', 'search_read',
         [[['default_code', '!=', false], ['active', '=', true]]],
         { fields: ['id', 'default_code', 'name', 'standard_price'], limit: 50000 }
@@ -1914,7 +1914,7 @@ async function refreshPackingCache() {
     try {
       const abcData = await new Promise((resolve, reject) => {
         models.methodCall('execute_kw', [
-          process.env.ODOO_DB, uid, process.env.ODOO_PASSWORD,
+          process.env.ODOO_DATABASE, uid, process.env.ODOO_PASSWORD,
           'abc.classification.product.level', 'search_read',
           [[]],
           { fields: ['product_id', 'level_id'], limit: 100000 }
@@ -1938,7 +1938,7 @@ async function refreshPackingCache() {
     console.log('  📍 Descargando stock...');
     const quants = await new Promise((resolve, reject) => {
       models.methodCall('execute_kw', [
-        process.env.ODOO_DB, uid, process.env.ODOO_PASSWORD,
+        process.env.ODOO_DATABASE, uid, process.env.ODOO_PASSWORD,
         'stock.quant', 'search_read',
         [[['location_id.usage', '=', 'internal'], ['quantity', '>', 0]]],
         { fields: ['product_id', 'location_id', 'quantity'], limit: 100000 }
