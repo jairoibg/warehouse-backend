@@ -378,6 +378,60 @@ app.get("/api/devoluciones", async (req, res) => {
   }
 });
 
+// ==================================================================================
+//  ⭐ ENDPOINTS SYNC MANUAL
+// ==================================================================================
+
+// Endpoint para forzar sincronización manual
+app.post("/api/force-sync", async (req, res) => {
+  try {
+    if (isSyncing) {
+      return res.status(429).json({ 
+        error: 'Sincronización ya en curso',
+        lastSync: lastSyncTimestamp 
+      });
+    }
+
+    console.log('🔄 [SYNC] Forzando sincronización manual...');
+    
+    isSyncing = true;
+    const updatedData = await syncWithOdoo();
+    
+    if (updatedData) {
+      lastSyncTimestamp = new Date();
+      broadcastUpdate(updatedData);
+      
+      res.json({ 
+        success: true,
+        message: 'Sincronización completada',
+        lastSync: lastSyncTimestamp,
+        locations: updatedData.length || 0
+      });
+    } else {
+      res.status(500).json({ 
+        error: 'Error en la sincronización',
+        lastSync: lastSyncTimestamp 
+      });
+    }
+  } catch (error) {
+    console.error('❌ Error en force-sync:', error);
+    res.status(500).json({ 
+      error: error.message,
+      lastSync: lastSyncTimestamp 
+    });
+  } finally {
+    isSyncing = false;
+  }
+});
+
+// Endpoint para obtener timestamp de última sincronización
+app.get("/api/last-sync", (req, res) => {
+  res.json({ 
+    lastSync: lastSyncTimestamp,
+    isSyncing: isSyncing 
+  });
+});
+
 // 4. Estadísticas de devoluciones
 app.get("/api/devoluciones/stats", async (req, res) => {
   try {
@@ -1846,6 +1900,7 @@ function broadcastUpdate(data) {
 wss.on("connection", () => console.log("WS conectado"));
 
 const POLLING_INTERVAL_MS = 5000;
+let lastSyncTimestamp = new Date();
 let isSyncing = false;
 
 setInterval(async () => {
@@ -1853,7 +1908,10 @@ setInterval(async () => {
   try {
     isSyncing = true;
     const updatedData = await syncWithOdoo();
-    if (updatedData) broadcastUpdate(updatedData);
+    if (updatedData) {
+      lastSyncTimestamp = new Date();
+      broadcastUpdate(updatedData);
+    }
   } catch (e) {
     console.error(e.message);
   } finally {
