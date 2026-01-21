@@ -192,7 +192,8 @@ async function buscarEnOdoo(query, tipo = 'todos') {
   let domain = [
     ['picking_type_id.code', '=', 'outgoing'],
     ['state', '=', 'done'],
-    ['origin', 'ilike', 'S%']  // Solo pickings B2B (pedido origen empieza por S)
+    ['origin', 'ilike', 'S%'],  // Empieza por S
+    ['origin', 'not ilike', '%SF']  // NO termina en SF
   ];
 
   const q = query.trim();
