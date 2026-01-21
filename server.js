@@ -437,13 +437,12 @@ app.get("/api/last-sync", (req, res) => {
 app.get("/api/devoluciones/stats", async (req, res) => {
   try {
     const devoluciones = await getDevoluciones();
-    
+
     const now = new Date();
     const hoy = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const inicioSemana = new Date(hoy);
     inicioSemana.setDate(hoy.getDate() - hoy.getDay()); // Domingo
     const inicioMes = new Date(now.getFullYear(), now.getMonth(), 1);
-    const hace30Dias = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
     // Contadores
     const contadores = {
@@ -453,13 +452,46 @@ app.get("/api/devoluciones/stats", async (req, res) => {
       total: devoluciones.length
     };
 
-    // Por empresa (últimos 30 días)
-    const devs30Dias = devoluciones.filter(d => new Date(d.fecha_recepcion) >= hace30Dias);
+    // Por empresa (HISTÓRICO COMPLETO)
     const porCompany = {};
-    devs30Dias.forEach(d => {
+    devoluciones.forEach(d => {
       const comp = d.company || 'Sin empresa';
       porCompany[comp] = (porCompany[comp] || 0) + 1;
     });
+
+    // Por día de la semana (HISTÓRICO COMPLETO)
+    const diasSemana = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    const porDiaSemana = {};
+    diasSemana.forEach(d => porDiaSemana[d] = 0);
+    
+    devoluciones.forEach(d => {
+      const fecha = new Date(d.fecha_recepcion);
+      const diaSemana = diasSemana[fecha.getDay()];
+      porDiaSemana[diaSemana]++;
+    });
+
+    // Por mes (ÚLTIMOS 6 MESES)
+    const mesesNombres = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
+                          'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    const porMes = [];
+    
+    for (let i = 5; i >= 0; i--) {
+      const fecha = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const mesNombre = mesesNombres[fecha.getMonth()];
+      const year = fecha.getFullYear();
+      const siguienteMes = new Date(fecha.getFullYear(), fecha.getMonth() + 1, 1);
+      
+      const count = devoluciones.filter(d => {
+        const devFecha = new Date(d.fecha_recepcion);
+        return devFecha >= fecha && devFecha < siguienteMes;
+      }).length;
+      
+      porMes.push({ 
+        mes: mesNombre, 
+        year: year,
+        count: count 
+      });
+    }
 
     // Últimas 5 devoluciones
     const ultimas = devoluciones
@@ -469,6 +501,8 @@ app.get("/api/devoluciones/stats", async (req, res) => {
     res.json({
       contadores,
       por_company: Object.entries(porCompany).map(([company, count]) => ({ company, count })),
+      por_dia_semana: Object.entries(porDiaSemana).map(([dia, count]) => ({ dia, count })),
+      por_mes: porMes,
       ultimas
     });
   } catch (error) {
