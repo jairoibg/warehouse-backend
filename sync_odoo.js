@@ -150,6 +150,52 @@ function detectBrandFromItem(pkgName, productCode) {
 }
 
 // ==================================================================================
+//  FUNCIÓN CRÍTICA: EXTRAER LETRA ABC DE ODOO
+// ==================================================================================
+/**
+ * Extrae la letra de clasificación ABC del string completo de Odoo.
+ * 
+ * Odoo devuelve el level_id[1] con formatos como:
+ *   - "ABC (CLA - Black): A"
+ *   - "ABC Gafas: A"
+ *   - "ABC (CLA - Black): B"
+ *   - "A" (en algunos casos)
+ * 
+ * Esta función extrae SOLO la letra A, B, C o D.
+ * 
+ * @param {string|null} levelString - El string completo de Odoo
+ * @returns {string} - La letra de clasificación (A, B, C o D)
+ */
+function extractABCLetter(levelString) {
+  if (!levelString) return "D";
+  
+  const str = String(levelString).trim().toUpperCase();
+  
+  // Caso 1: Ya es solo una letra (A, B, C, D)
+  if (/^[ABCD]$/.test(str)) {
+    return str;
+  }
+  
+  // Caso 2: Formato "ABC (CLA - Black): A" o "ABC Gafas: A"
+  // Buscar ": A" o ": B" etc al final del string
+  const colonMatch = str.match(/:\s*([ABCD])\s*$/);
+  if (colonMatch) {
+    return colonMatch[1];
+  }
+  
+  // Caso 3: Buscar la última letra A, B, C o D en el string
+  // Esto maneja casos edge como "ABC Classification Level A"
+  const lastLetterMatch = str.match(/[ABCD](?=[^ABCD]*$)/);
+  if (lastLetterMatch) {
+    return lastLetterMatch[0];
+  }
+  
+  // Caso 4: Si no encontramos nada válido, devolver D (por defecto)
+  console.log(`  ⚠️  [ABC] No se pudo extraer letra de: "${levelString}" → usando "D"`);
+  return "D";
+}
+
+// ==================================================================================
 //  CONECTORES ODOO
 // ==================================================================================
 function odooAuth() {
@@ -430,7 +476,7 @@ async function fetchAllStock(uid) {
 }
 
 // ==================================================================================
-//  ORQUESTADOR PRINCIPAL - MODIFICADO PARA B2C + B2B
+//  ORQUESTADOR PRINCIPAL - MODIFICADO PARA B2C + B2B + FIX ABC
 // ==================================================================================
 export async function syncWithOdoo() {
   try {
@@ -462,21 +508,56 @@ export async function syncWithOdoo() {
         fetchSalesVelocity(uid, productIds)
     ]);
 
-    // --- LÓGICA HÍBRIDA DE CLASIFICACIÓN ABC ---
+    // ==================================================================================
+    //  LÓGICA HÍBRIDA DE CLASIFICACIÓN ABC - CORREGIDA
+    // ==================================================================================
     const abcMap = {};
     const foundIds = new Set();
+    
+    // Estadísticas para verificación
+    let abcStats = { A: 0, B: 0, C: 0, D: 0, total: 0, rawExamples: [] };
     
     abcData.forEach(row => {
       const pid = row.product_id[0];
       foundIds.add(pid);
-      const letter = row.level_id ? row.level_id[1] : "D";
-      const current = abcMap[pid] || "D";
-      if (letter < current) abcMap[pid] = letter;
-      else if (!abcMap[pid]) abcMap[pid] = letter;
+      
+      // *** CORRECCIÓN CRÍTICA ***
+      // Antes: const letter = row.level_id ? row.level_id[1] : "D";
+      // Esto guardaba "ABC (CLA - Black): A" en vez de solo "A"
+      
+      const rawLevel = row.level_id ? row.level_id[1] : null;
+      const letter = extractABCLetter(rawLevel);  // ← AHORA extrae solo la letra
+      
+      // Guardar ejemplos para debug (solo los primeros 5)
+      if (abcStats.rawExamples.length < 5) {
+        abcStats.rawExamples.push({ raw: rawLevel, extracted: letter });
+      }
+      
+      abcStats.total++;
+      abcStats[letter]++;
+      
+      // Si el producto ya tiene clasificación, quedarse con la mejor (A > B > C > D)
+      const current = abcMap[pid];
+      if (!current || letter < current) {
+        abcMap[pid] = letter;
+      }
     });
-
-    const orphanIds = productIds.filter(id => !foundIds.has(id));
     
+    // Log de verificación
+    console.log(` 📊  ABC extraído de Odoo: A=${abcStats.A}, B=${abcStats.B}, C=${abcStats.C}, D=${abcStats.D} (total: ${abcStats.total})`);
+    if (abcStats.rawExamples.length > 0) {
+      console.log(`     Ejemplos de extracción:`);
+      abcStats.rawExamples.forEach(ex => {
+        console.log(`       "${ex.raw}" → "${ex.extracted}"`);
+      });
+    }
+    // ==================================================================================
+
+    // Detectar productos huérfanos (sin clasificación en Odoo)
+    const orphanIds = productIds.filter(id => !foundIds.has(id));
+    console.log(` 🔍  Productos sin ABC en Odoo: ${orphanIds.length}`);
+    
+    // Calcular ABC para huérfanos usando MACD
     let calculatedABC = {};
     if (orphanIds.length > 0) {
         calculatedABC = await calculateOrphanABC(uid, orphanIds);
@@ -498,6 +579,7 @@ export async function syncWithOdoo() {
       const palletCap = getPalletCapacity(boxRule);
       let occupancyPerBox = boxRule.isVolumetric ? (palletCap > 0 ? (100 / palletCap) : 100) : 10;
       
+      // Prioridad: Odoo oficial > MACD calculado > Default "D"
       const finalABC = abcMap[p.id] || calculatedABC[p.id] || "D";
 
       productMeta[p.id] = {
@@ -663,7 +745,7 @@ export async function syncWithOdoo() {
       }
     }).filter(loc => loc !== null); // Eliminar SalvaStock
 
-    console.log(` ✅  Sync Completo (B2C + B2B + PLAYA + MACD + Explicabilidad)`);
+    console.log(` ✅  Sync Completo (B2C + B2B + PLAYA + MACD + ABC FIX)`);
     console.log(`     📦 B2C: ${matchesB2C} ubicaciones con stock`);
     console.log(`     📦 B2B: ${matchesB2B} ubicaciones con stock`);
     console.log(`     🏖️  Playa: ${matchesPlaya} ubicaciones con stock`);
