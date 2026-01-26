@@ -682,7 +682,20 @@ export async function syncWithOdoo() {
           const totalVelocity = realStock.reduce((acc, item) => acc + (item.velocity || 0), 0);
           
           const packageIdStr = realStock[0].packageId;
-          const detectedBrand = detectBrandFromItem(packageIdStr, realStock[0].productCode);
+          
+          // Detectar marca primero desde el ID de ubicación, luego desde el producto
+          let detectedBrand = 'GENERIC';
+          const locIdUpper = loc.id.toUpperCase();
+          if (locIdUpper.includes('BD') || locIdUpper.includes('BLACK')) {
+            detectedBrand = 'BLACK';
+          } else if (locIdUpper.includes('GD') || locIdUpper.includes('GOLD')) {
+            detectedBrand = 'GOLD';
+          } else if (locIdUpper.includes('WD') || locIdUpper.includes('WH') || locIdUpper.includes('WHITE')) {
+            detectedBrand = 'WHITE';
+          } else {
+            // Fallback: detectar desde el producto
+            detectedBrand = detectBrandFromItem(packageIdStr, realStock[0].productCode);
+          }
           brand = detectedBrand;
 
           const uniquePackages = new Set();
@@ -758,6 +771,154 @@ export async function syncWithOdoo() {
     console.error(" ❌  Error en syncWithOdoo:", error.message);
     return null;
   }
+}
+
+// ==================================================================================
+//  SINCRONIZACIÓN RÁPIDA POR CANAL (Solo actualiza stock, mantiene ABC/velocity)
+// ==================================================================================
+
+// Función genérica para sync rápido por filtro de ubicación
+async function quickSyncByFilter(filterName, locationFilter) {
+  const startTime = Date.now();
+  console.log(`⚡ [QUICK-SYNC] Iniciando sync rápido de ${filterName}...`);
+  
+  try {
+    const uid = await odooAuth();
+    
+    // Query optimizada: solo quants con stock en ubicaciones específicas
+    const domain = [
+      ['location_id.complete_name', 'ilike', locationFilter],
+      ['quantity', '>', 0]
+    ];
+    
+    // Excluir SalvaStock si es Playa
+    if (filterName === 'PLAYA') {
+      domain.push(['location_id.complete_name', 'not ilike', '%SalvaStock%']);
+    }
+    
+    console.log(`⚡ [QUICK-SYNC] Descargando stock de ${filterName}...`);
+    
+    const models = xmlrpc.createSecureClient({ url: `${ODOO_CONFIG.url}/xmlrpc/2/object` });
+    
+    const stockData = await new Promise((resolve, reject) => {
+      models.methodCall('execute_kw', [
+        ODOO_CONFIG.db, uid, ODOO_CONFIG.password,
+        'stock.quant', 'search_read',
+        [domain],
+        { 
+          fields: ['product_id', 'quantity', 'reserved_quantity', 'location_id', 'package_id'],
+          limit: 50000
+        }
+      ], (err, res) => err ? reject(err) : resolve(res));
+    });
+    
+    console.log(`⚡ [QUICK-SYNC] ${filterName}: ${stockData.length} quants descargados`);
+    
+    // Cargar locations.json actual
+    const rawData = await fs.readFile(LOCATIONS_FILE, 'utf-8');
+    let locations = JSON.parse(rawData);
+    
+    // Agrupar stock por ubicación
+    const stockByLocation = {};
+    stockData.forEach(q => {
+      const locName = q.location_id[1]; // Nombre completo de ubicación
+      if (!stockByLocation[locName]) {
+        stockByLocation[locName] = { 
+          qty: 0, 
+          reserved: 0,
+          packages: new Set(),
+          items: []
+        };
+      }
+      stockByLocation[locName].qty += q.quantity || 0;
+      stockByLocation[locName].reserved += q.reserved_quantity || 0;
+      if (q.package_id) {
+        stockByLocation[locName].packages.add(q.package_id[1]);
+      }
+      stockByLocation[locName].items.push({
+        productId: q.product_id[0],
+        productName: q.product_id[1],
+        qty: q.quantity,
+        packageId: q.package_id ? q.package_id[0] : null,
+        packageName: q.package_id ? q.package_id[1] : null
+      });
+    });
+    
+    // Actualizar solo ubicaciones que coinciden con el filtro
+    let updated = 0;
+    let cleared = 0;
+    
+    locations = locations.map(loc => {
+      // Solo procesar ubicaciones que coinciden con el filtro
+      const matchesFilter = loc.id.toLowerCase().includes(locationFilter.replace(/%/g, '').toLowerCase());
+      if (!matchesFilter) return loc;
+      
+      // Buscar stock para esta ubicación
+      const matchingKey = Object.keys(stockByLocation).find(k => {
+        // Comparar la parte final del ID (CLA-XXX-XX-XX-XX)
+        const locCode = loc.id.match(/CLA-\d{3}-\d{2}-\d{2}-\d{2}/)?.[0];
+        return locCode && k.includes(locCode);
+      });
+      
+      if (matchingKey) {
+        const data = stockByLocation[matchingKey];
+        updated++;
+        return {
+          ...loc,
+          totalStock: data.qty,
+          totalReserved: data.reserved,
+          packages: data.items,
+          uniquePackages: data.packages.size,
+          status: data.qty > 0 ? 'OCCUPIED' : 'FREE',
+          lastQuickSync: new Date().toISOString()
+        };
+      } else {
+        // Si no hay stock, limpiar pero mantener otros datos
+        if (loc.totalStock > 0) cleared++;
+        return {
+          ...loc,
+          totalStock: 0,
+          totalReserved: 0,
+          packages: [],
+          uniquePackages: 0,
+          status: 'FREE',
+          lastQuickSync: new Date().toISOString()
+        };
+      }
+    });
+    
+    // Guardar
+    await fs.writeFile(LOCATIONS_FILE, JSON.stringify(locations, null, 2));
+    
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`✅ [QUICK-SYNC] ${filterName} completado en ${elapsed}s | Actualizadas: ${updated} | Vaciadas: ${cleared}`);
+    
+    return {
+      success: true,
+      channel: filterName,
+      elapsed: parseFloat(elapsed),
+      quants: stockData.length,
+      updated,
+      cleared
+    };
+    
+  } catch (error) {
+    console.error(`❌ [QUICK-SYNC] Error en ${filterName}:`, error);
+    throw error;
+  }
+}
+
+// Exports para cada canal
+export async function syncB2COnly() {
+  return quickSyncByFilter('B2C', '%Storage%');
+}
+
+export async function syncB2BOnly() {
+  return quickSyncByFilter('B2B', '%EXTB2B%');
+}
+
+export async function syncPlayaOnly() {
+  return quickSyncByFilter('PLAYA', '%Playa%');
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

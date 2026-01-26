@@ -425,6 +425,48 @@ app.post("/api/force-sync", async (req, res) => {
   }
 });
 
+// Sync rápido B2C (~10 segundos)
+app.post("/api/sync-b2c", async (req, res) => {
+  try {
+    console.log('🔵 [SYNC] Actualizando solo B2C...');
+    const { syncB2COnly } = await import('./sync_odoo.js');
+    const result = await syncB2COnly();
+    lastSyncTimestamp = new Date();
+    res.json({ ...result, lastSync: lastSyncTimestamp });
+  } catch (error) {
+    console.error('❌ Error en sync-b2c:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Sync rápido B2B (~10 segundos)
+app.post("/api/sync-b2b", async (req, res) => {
+  try {
+    console.log('🟠 [SYNC] Actualizando solo B2B...');
+    const { syncB2BOnly } = await import('./sync_odoo.js');
+    const result = await syncB2BOnly();
+    lastSyncTimestamp = new Date();
+    res.json({ ...result, lastSync: lastSyncTimestamp });
+  } catch (error) {
+    console.error('❌ Error en sync-b2b:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Sync rápido Playa (~2 segundos)
+app.post("/api/sync-playa", async (req, res) => {
+  try {
+    console.log('🏖️ [SYNC] Actualizando solo Playa...');
+    const { syncPlayaOnly } = await import('./sync_odoo.js');
+    const result = await syncPlayaOnly();
+    lastSyncTimestamp = new Date();
+    res.json({ ...result, lastSync: lastSyncTimestamp });
+  } catch (error) {
+    console.error('❌ Error en sync-playa:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Endpoint para obtener timestamp de última sincronización
 app.get("/api/last-sync", (req, res) => {
   res.json({ 
@@ -2357,6 +2399,17 @@ function enrichPackingListAI(parsedData) {
         variants.push(`${dashParts[0]}-${dashParts[1].replace(/^0+/, '')}`);
       }
       
+      // CASO ESPECIAL: Referencias SIN guión (ej: DFKSUN0820)
+      // Buscar en caché productos que empiecen con esta referencia
+      if (dashParts.length === 1 && reference.length >= 8) {
+        for (const [cacheKey] of packingProductCache.entries()) {
+          if (cacheKey.startsWith(reference + '-')) {
+            variants.push(cacheKey);
+            break; // Tomar el primero que coincida
+          }
+        }
+      }
+      
       for (const variant of variants) {
         productInfo = packingProductCache.get(variant.toUpperCase().trim());
         if (productInfo) {
@@ -2426,11 +2479,12 @@ function enrichPackingListAI(parsedData) {
     let estimatedPalets = 0;
     
     const refUpper = reference.toUpperCase();
+    console.log(`  🔍 DEBUG: ref="${refUpper}", startsDFK=${refUpper.startsWith('DFK')}, startsDFS=${refUpper.startsWith('DFS')}`);
     
-    // REGLA 1: Gafas (DFK, DFS, SUN) → 50 unidades por caja, 70 cajas por palet
+    // REGLA 1: Gafas (DFK, DFS, SUN) → 50 unidades por caja, 22 cajas por palet
     if (refUpper.startsWith('DFK') || refUpper.startsWith('DFS') || refUpper.includes('SUN')) {
       unitsPerCarton = 50;
-      cartonsPerPalet = 70;
+      cartonsPerPalet = 22;
       totalCartons = Math.ceil(refData.totalUnits / unitsPerCarton);
       estimatedPalets = Math.ceil(totalCartons / cartonsPerPalet);
     }
@@ -2637,6 +2691,7 @@ app.post("/api/packing/analyze", packingUpload.single('file'), async (req, res) 
     
     const containerNumber = parsed.container_number || 
                            req.file.originalname.match(/[A-Z]{4}\d{7}/)?.[0] ||
+                           req.file.originalname.match(/(\d{10,12})/)?.[1] ||
                            'UNKNOWN';
 
     console.log(`  📦 Contenedor: ${containerNumber}`);
