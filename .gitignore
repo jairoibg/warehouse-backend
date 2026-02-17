@@ -1,2 +1,6 @@
-node_modules 
-.env 
+node_modules
+.env
+
+# Datos de runtime - se modifican en producción, no deben sobrescribirse
+data/devoluciones.json
+data/locations.json
