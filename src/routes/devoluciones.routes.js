@@ -93,6 +93,7 @@ async function buscarEnOdoo(query, tipo = 'todos') {
         picking_id: p.id,
         albaran: p.name,
         cliente: p.partner_id ? p.partner_id[1] : 'N/A',
+        partner_id: p.partner_id ? p.partner_id[0] : null,
         pedido: p.sale_id ? p.sale_id[1] : (p.origin || 'N/A'),
         fecha_envio: p.date_done,
         carrier: p.carrier_id ? p.carrier_id[1] : null,
@@ -126,7 +127,7 @@ router.get('/buscar', asyncHandler(async (req, res) => {
  * Registrar nueva devolución
  */
 router.post('/', asyncHandler(async (req, res) => {
-  const { picking_id, picking_name, partner_name, company, tracking_retorno, recibido_por, notas } = req.body;
+  const { picking_id, picking_name, partner_name, partner_id, company, tracking_retorno, recibido_por, notas } = req.body;
   if (!picking_id || !picking_name) {
     return res.status(400).json({ error: 'Datos incompletos' });
   }
@@ -140,6 +141,7 @@ router.post('/', asyncHandler(async (req, res) => {
     picking_id,
     picking_name,
     partner_name,
+    partner_id: partner_id || null,
     company: company || 'Black',
     tracking_retorno: tracking_retorno || null,
     recibido_por: recibido_por || 'Operario',
@@ -220,6 +222,50 @@ router.delete('/:id', asyncHandler(async (req, res) => {
   await saveDevoluciones(devoluciones);
   console.log(`🗑️ [DEVOLUCIONES] Eliminada: ${eliminada.picking_name}`);
   res.json({ success: true, eliminada });
+}));
+
+/**
+ * POST /api/devoluciones/migrate-partner-ids
+ * Migración: rellenar partner_id en devoluciones antiguas buscando en Odoo por picking_id
+ */
+router.post('/migrate-partner-ids', asyncHandler(async (req, res) => {
+  console.log('🔄 [DEVOLUCIONES] Iniciando migración de partner_ids...');
+  const devoluciones = await getDevoluciones();
+  const sinPartnerId = devoluciones.filter(d => !d.partner_id && d.picking_id);
+
+  if (sinPartnerId.length === 0) {
+    return res.json({ success: true, message: 'Todas las devoluciones ya tienen partner_id', migrated: 0 });
+  }
+
+  console.log(`📋 [DEVOLUCIONES] ${sinPartnerId.length} devoluciones sin partner_id`);
+  const auth = await odooAuth();
+  let migrated = 0;
+  const errors = [];
+
+  for (const dev of sinPartnerId) {
+    try {
+      const pickings = await odooExecute(
+        auth, 'stock.picking', 'search_read',
+        [[['id', '=', dev.picking_id]]],
+        { fields: ['partner_id'], limit: 1 }
+      );
+      if (pickings.length > 0 && pickings[0].partner_id) {
+        dev.partner_id = pickings[0].partner_id[0];
+        migrated++;
+        console.log(`  ✅ ${dev.picking_name} → partner_id: ${dev.partner_id}`);
+      } else {
+        console.log(`  ⚠️ ${dev.picking_name} → no se encontró en Odoo`);
+        errors.push(dev.picking_name);
+      }
+    } catch (err) {
+      console.error(`  ❌ ${dev.picking_name} → error: ${err.message}`);
+      errors.push(dev.picking_name);
+    }
+  }
+
+  await saveDevoluciones(devoluciones);
+  console.log(`🔄 [DEVOLUCIONES] Migración completada: ${migrated}/${sinPartnerId.length}`);
+  res.json({ success: true, migrated, total: sinPartnerId.length, errors });
 }));
 
 export default router;

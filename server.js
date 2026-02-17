@@ -256,6 +256,7 @@ async function buscarEnOdoo(query, tipo = 'todos') {
         picking_id: p.id,
         albaran: p.name,
         cliente: p.partner_id ? p.partner_id[1] : 'N/A',
+        partner_id: p.partner_id ? p.partner_id[0] : null,
         pedido: p.sale_id ? p.sale_id[1] : (p.origin || 'N/A'),
         fecha_envio: p.date_done,
         carrier: p.carrier_id ? p.carrier_id[1] : null,
@@ -306,7 +307,7 @@ app.get("/api/devoluciones/buscar", async (req, res) => {
 // 2. Registrar nueva devolución
 app.post("/api/devoluciones", async (req, res) => {
   try {
-    const { picking_id, picking_name, partner_name, company, tracking_retorno, recibido_por, notas } = req.body;
+    const { picking_id, picking_name, partner_name, partner_id, company, tracking_retorno, recibido_por, notas } = req.body;
 
     if (!picking_id || !picking_name) {
       return res.status(400).json({ error: 'Datos incompletos' });
@@ -326,6 +327,7 @@ app.post("/api/devoluciones", async (req, res) => {
       picking_id,
       picking_name,
       partner_name,
+      partner_id: partner_id || null,
       company: company || 'Black',
       tracking_retorno: tracking_retorno || null,
       recibido_por: recibido_por || 'Operario',
@@ -572,6 +574,161 @@ app.delete("/api/devoluciones/:id", async (req, res) => {
     res.json({ success: true, eliminada });
   } catch (error) {
     console.error('❌ Error eliminando devolución:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 6. Buscar RMA del cliente en Helpdesk
+app.get("/api/devoluciones/rma/:partner_id", async (req, res) => {
+  try {
+    const { partner_id } = req.params;
+    
+    if (!partner_id) {
+      return res.status(400).json({ error: 'Partner ID requerido' });
+    }
+
+    const common = xmlrpc.createSecureClient({ url: `${process.env.ODOO_URL}/xmlrpc/2/common` });
+    const models = xmlrpc.createSecureClient({ url: `${process.env.ODOO_URL}/xmlrpc/2/object` });
+
+    const uid = await new Promise((resolve, reject) => {
+      common.methodCall('authenticate', [
+        process.env.ODOO_DATABASE, process.env.ODOO_USERNAME, process.env.ODOO_PASSWORD, {}
+      ], (err, res) => err ? reject(err) : resolve(res));
+    });
+
+    const tickets = await new Promise((resolve, reject) => {
+      models.methodCall('execute_kw', [
+        process.env.ODOO_DATABASE, uid, process.env.ODOO_PASSWORD,
+        'helpdesk.ticket', 'search_read',
+        [[
+          ['partner_id', '=', parseInt(partner_id)],
+          ['team_id.name', 'ilike', 'SAC - B2B']
+        ]],
+        {
+          fields: ['id', 'name', 'partner_id', 'team_id', 'stage_id', 'tag_ids', 'create_date', 'sale_order_id'],
+          order: 'create_date desc',
+          limit: 10
+        }
+      ], (err, res) => err ? reject(err) : resolve(res));
+    });
+
+    let ticketsConTags = tickets;
+    if (tickets.length > 0) {
+      const allTagIds = [...new Set(tickets.flatMap(t => t.tag_ids || []))];
+      
+      if (allTagIds.length > 0) {
+        const tags = await new Promise((resolve, reject) => {
+          models.methodCall('execute_kw', [
+            process.env.ODOO_DATABASE, uid, process.env.ODOO_PASSWORD,
+            'helpdesk.tag', 'read',
+            [allTagIds],
+            { fields: ['id', 'name'] }
+          ], (err, res) => err ? reject(err) : resolve(res));
+        });
+        
+        const tagMap = {};
+        tags.forEach(t => tagMap[t.id] = t.name);
+        
+        ticketsConTags = tickets.map(t => ({
+          ...t,
+          tags: (t.tag_ids || []).map(id => tagMap[id]).filter(Boolean)
+        }));
+      }
+    }
+
+    const resultado = ticketsConTags.map(t => ({
+      id: t.id,
+      nombre: t.name,
+      equipo: t.team_id ? t.team_id[1] : null,
+      estado: t.stage_id ? t.stage_id[1] : null,
+      etiquetas: t.tags || [],
+      fecha: t.create_date,
+      pedido: t.sale_order_id ? t.sale_order_id[1] : null
+    }));
+
+    console.log('RMA Partner ' + partner_id + ': ' + resultado.length + ' tickets');
+    
+    res.json({ 
+      tiene_rma: resultado.length > 0,
+      tickets: resultado 
+    });
+
+  } catch (error) {
+    console.error('Error buscando RMA:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 6b. Guardar caché de RMA en la devolución
+app.patch("/api/devoluciones/:id/rma", async (req, res) => {
+  try {
+    const devId = parseInt(req.params.id) || req.params.id;
+    const { tiene_rma, tickets } = req.body;
+    let devoluciones = await getDevoluciones();
+    const idx = devoluciones.findIndex(d => d.id == devId);
+    if (idx === -1) return res.status(404).json({ error: 'Devolución no encontrada' });
+    devoluciones[idx].rma_cache = { tiene_rma, tickets, cached_at: new Date().toISOString() };
+    await saveDevoluciones(devoluciones);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error guardando RMA cache:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 7. Migración: rellenar partner_id en devoluciones antiguas
+app.post("/api/devoluciones/migrate-partner-ids", async (req, res) => {
+  try {
+    console.log('🔄 [DEVOLUCIONES] Iniciando migración de partner_ids...');
+    const devoluciones = await getDevoluciones();
+    const sinPartnerId = devoluciones.filter(d => !d.partner_id && d.picking_id);
+
+    if (sinPartnerId.length === 0) {
+      return res.json({ success: true, message: 'Todas ya tienen partner_id', migrated: 0 });
+    }
+
+    console.log(`📋 ${sinPartnerId.length} devoluciones sin partner_id`);
+
+    const common = xmlrpc.createSecureClient({ url: `${process.env.ODOO_URL}/xmlrpc/2/common` });
+    const models = xmlrpc.createSecureClient({ url: `${process.env.ODOO_URL}/xmlrpc/2/object` });
+    const uid = await new Promise((resolve, reject) => {
+      common.methodCall('authenticate', [
+        process.env.ODOO_DATABASE, process.env.ODOO_USERNAME, process.env.ODOO_PASSWORD, {}
+      ], (err, r) => err ? reject(err) : resolve(r));
+    });
+
+    let migrated = 0;
+    const errors = [];
+
+    for (const dev of sinPartnerId) {
+      try {
+        const pickings = await new Promise((resolve, reject) => {
+          models.methodCall('execute_kw', [
+            process.env.ODOO_DATABASE, uid, process.env.ODOO_PASSWORD,
+            'stock.picking', 'search_read',
+            [[['id', '=', dev.picking_id]]],
+            { fields: ['partner_id'], limit: 1 }
+          ], (err, r) => err ? reject(err) : resolve(r));
+        });
+
+        if (pickings.length > 0 && pickings[0].partner_id) {
+          dev.partner_id = pickings[0].partner_id[0];
+          migrated++;
+          console.log(`  ✅ ${dev.picking_name} → partner_id: ${dev.partner_id}`);
+        } else {
+          errors.push(dev.picking_name);
+        }
+      } catch (err) {
+        console.error(`  ❌ ${dev.picking_name}: ${err.message}`);
+        errors.push(dev.picking_name);
+      }
+    }
+
+    await saveDevoluciones(devoluciones);
+    console.log(`🔄 Migración completada: ${migrated}/${sinPartnerId.length}`);
+    res.json({ success: true, migrated, total: sinPartnerId.length, errors });
+  } catch (error) {
+    console.error('❌ Error en migración:', error);
     res.status(500).json({ error: error.message });
   }
 });

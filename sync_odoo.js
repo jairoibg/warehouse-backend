@@ -835,12 +835,20 @@ async function quickSyncByFilter(filterName, locationFilter) {
       if (q.package_id) {
         stockByLocation[locName].packages.add(q.package_id[1]);
       }
+      // Extraer productCode del nombre: "[COSH215053-LEOP-24] ESPADRILLES..." → "COSH215053-LEOP-24"
+      const prodName = q.product_id[1] || '';
+      const codeMatch = prodName.match(/^\[([^\]]+)\]/);
+      const productCode = codeMatch ? codeMatch[1] : prodName.split(']')[0].replace('[','') || 'SIN_REF';
+
       stockByLocation[locName].items.push({
-        productId: q.product_id[0],
-        productName: q.product_id[1],
+        packageId: q.package_id ? q.package_id[1] : 'SIN_PAQUETE',
+        productCode: productCode,
+        surtido: prodName,
         qty: q.quantity,
-        packageId: q.package_id ? q.package_id[0] : null,
-        packageName: q.package_id ? q.package_id[1] : null
+        reservedQty: q.reserved_quantity || 0,
+        abcClass: 'D',
+        season: 'N/A',
+        daysOld: 0
       });
     });
     
@@ -855,7 +863,11 @@ async function quickSyncByFilter(filterName, locationFilter) {
       
       // Buscar stock para esta ubicación
       const matchingKey = Object.keys(stockByLocation).find(k => {
-        // Comparar la parte final del ID (CLA-XXX-XX-XX-XX)
+        // Para ubicaciones Playa: comparar por nombre completo (no tienen CLA-XXX-XX-XX-XX)
+        if (loc.id.includes('Playa')) {
+          return k === loc.id;
+        }
+        // Para ubicaciones normales: comparar la parte final del ID (CLA-XXX-XX-XX-XX)
         const locCode = loc.id.match(/CLA-\d{3}-\d{2}-\d{2}-\d{2}/)?.[0];
         return locCode && k.includes(locCode);
       });
