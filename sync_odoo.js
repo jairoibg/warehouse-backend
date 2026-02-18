@@ -14,7 +14,11 @@ const ODOO_CONFIG = {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const LOCATIONS_FILE = path.join(__dirname, 'data', 'locations.json');
+// ⭐ PERSISTENCIA: Si hay volumen Railway, escribir locations ahí
+const PERSISTENT_DATA = process.env.RAILWAY_VOLUME_MOUNT_PATH
+  ? path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, 'data')
+  : path.join(__dirname, 'data');
+const LOCATIONS_FILE = path.join(PERSISTENT_DATA, 'locations.json');
 
 // ==================================================================================
 //  MÓDULO DE INGENIERÍA LOGÍSTICA (CÁLCULO VOLUMÉTRICO)

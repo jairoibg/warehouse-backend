@@ -55,9 +55,16 @@ const PORT = process.env.PORT || 4000;
 const SERVER_HOST = process.env.SERVER_HOST || "localhost";
 
 // Rutas de Datos
-const LOCATIONS_FILE = path.join(__dirname, "data", "locations.json");
-const AUDIT_REPORT_FILE = path.join(__dirname, "data", "audit_report.json");
-const DEVOLUCIONES_FILE = path.join(__dirname, "data", "devoluciones.json"); // ⭐ NUEVO
+// ⭐ PERSISTENCIA: Si hay un volumen montado en Railway, usar esa ruta para datos persistentes
+const PERSISTENT_DATA_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH
+  ? path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, "data")
+  : path.join(__dirname, "data");
+const LOCAL_DATA_DIR = path.join(__dirname, "data"); // Siempre apunta al código (para seed)
+
+const LOCATIONS_FILE = path.join(PERSISTENT_DATA_DIR, "locations.json");
+const AUDIT_REPORT_FILE = path.join(PERSISTENT_DATA_DIR, "audit_report.json");
+const DEVOLUCIONES_FILE = path.join(PERSISTENT_DATA_DIR, "devoluciones.json"); // ⭐ Persiste en volumen
+const DEVOLUCIONES_SEED_FILE = path.join(LOCAL_DATA_DIR, "devoluciones.seed.json"); // Semilla siempre en código (git)
 
 // NO salir si no hay API key - solo advertir
 if (!process.env.ANTHROPIC_API_KEY) {
@@ -69,14 +76,24 @@ if (!fsSync.existsSync(EXPORT_DIR)) {
   fsSync.mkdirSync(EXPORT_DIR);
 }
 
-// ⭐ Asegurar que existe el archivo de devoluciones
-const DATA_DIR = path.join(__dirname, "data");
-if (!fsSync.existsSync(DATA_DIR)) {
-  fsSync.mkdirSync(DATA_DIR, { recursive: true });
+// ⭐ Asegurar que existen los directorios de datos
+if (!fsSync.existsSync(LOCAL_DATA_DIR)) {
+  fsSync.mkdirSync(LOCAL_DATA_DIR, { recursive: true });
+}
+if (!fsSync.existsSync(PERSISTENT_DATA_DIR)) {
+  fsSync.mkdirSync(PERSISTENT_DATA_DIR, { recursive: true });
 }
 if (!fsSync.existsSync(DEVOLUCIONES_FILE)) {
   fsSync.writeFileSync(DEVOLUCIONES_FILE, '[]', 'utf8');
   console.log("📁 Archivo devoluciones.json creado");
+}
+
+// Log de persistencia
+if (process.env.RAILWAY_VOLUME_MOUNT_PATH) {
+  console.log(`💾 [PERSISTENCIA] Volumen montado en: ${process.env.RAILWAY_VOLUME_MOUNT_PATH}`);
+  console.log(`💾 [PERSISTENCIA] Datos persistentes en: ${PERSISTENT_DATA_DIR}`);
+} else {
+  console.log('⚠️ [PERSISTENCIA] Sin volumen montado - datos en filesystem efímero');
 }
 
 // ==================================================================================
@@ -173,6 +190,260 @@ async function getDevoluciones() {
 // Guardar devoluciones
 async function saveDevoluciones(devoluciones) {
   await fs.writeFile(DEVOLUCIONES_FILE, JSON.stringify(devoluciones, null, 2), 'utf8');
+}
+
+// ==================================================================================
+//  ⭐ PERSISTENCIA: Merge seed (git) + runtime (filesystem) al arrancar
+// ==================================================================================
+// En Railway el filesystem es efímero. Al hacer deploy, devoluciones.json puede no existir
+// o tener datos antiguos. La seed (rastreada en git) garantiza un baseline.
+// Si hay datos runtime (volumen persistente), se hace merge para no perder ninguna entrada.
+async function ensureDevolucionesFromSeed() {
+  let runtime = [];
+  let seed = [];
+
+  try { runtime = JSON.parse(await fs.readFile(DEVOLUCIONES_FILE, 'utf8')); } catch (e) { /* no runtime file */ }
+  try { seed = JSON.parse(await fs.readFile(DEVOLUCIONES_SEED_FILE, 'utf8')); } catch (e) { /* no seed file */ }
+
+  if (runtime.length === 0 && seed.length > 0) {
+    // Deploy fresco sin datos runtime → arrancar desde la semilla
+    console.log(`🌱 [STARTUP] Deploy fresco: cargando ${seed.length} devoluciones desde seed`);
+    await saveDevoluciones(seed);
+    return seed;
+  }
+
+  if (runtime.length > 0 && seed.length > 0) {
+    // Merge: añadir entradas de la seed que no estén en runtime (por picking_id o picking_name)
+    const runtimePickingIds = new Set(runtime.map(d => d.picking_id).filter(Boolean));
+    const runtimePickingNames = new Set(runtime.map(d => d.picking_name).filter(Boolean));
+    const newFromSeed = seed.filter(d => {
+      if (d.picking_id && runtimePickingIds.has(d.picking_id)) return false;
+      if (d.picking_name && runtimePickingNames.has(d.picking_name)) return false;
+      return true;
+    });
+    if (newFromSeed.length > 0) {
+      console.log(`🔀 [STARTUP] Merge: ${newFromSeed.length} devoluciones de seed añadidas a ${runtime.length} runtime`);
+      const merged = [...runtime, ...newFromSeed];
+      await saveDevoluciones(merged);
+      return merged;
+    }
+    console.log(`✅ [STARTUP] ${runtime.length} devoluciones runtime (seed ya incluida)`);
+    return runtime;
+  }
+
+  console.log(`📋 [STARTUP] ${runtime.length} devoluciones cargadas`);
+  return runtime;
+}
+
+// ==================================================================================
+//  ⭐ AUTO-MIGRACIÓN: partner_id + RMA cache al arrancar
+// ==================================================================================
+async function startupMigration() {
+  try {
+    // Paso 0: Merge con seed
+    let devoluciones = await ensureDevolucionesFromSeed();
+    if (devoluciones.length === 0) {
+      console.log('📋 [STARTUP] No hay devoluciones para migrar');
+      return;
+    }
+
+    let changed = false;
+
+    // Paso 1a: Resolver picking_id + partner_id para entradas que NO tienen picking_id (recuperadas de logs)
+    const sinPickingId = devoluciones.filter(d => !d.picking_id && d.picking_name);
+    if (sinPickingId.length > 0) {
+      console.log(`🔄 [STARTUP] Resolviendo picking_id para ${sinPickingId.length} devoluciones por nombre...`);
+
+      try {
+        const common = xmlrpc.createSecureClient({ url: `${process.env.ODOO_URL}/xmlrpc/2/common` });
+        const models = xmlrpc.createSecureClient({ url: `${process.env.ODOO_URL}/xmlrpc/2/object` });
+
+        const uid = await new Promise((resolve, reject) => {
+          common.methodCall('authenticate', [
+            process.env.ODOO_DATABASE, process.env.ODOO_USERNAME, process.env.ODOO_PASSWORD, {}
+          ], (err, r) => err ? reject(err) : resolve(r));
+        });
+
+        for (const dev of sinPickingId) {
+          try {
+            const pickings = await new Promise((resolve, reject) => {
+              models.methodCall('execute_kw', [
+                process.env.ODOO_DATABASE, uid, process.env.ODOO_PASSWORD,
+                'stock.picking', 'search_read',
+                [[['name', '=', dev.picking_name]]],
+                { fields: ['id', 'partner_id', 'company_id'], limit: 1 }
+              ], (err, r) => err ? reject(err) : resolve(r));
+            });
+
+            if (pickings.length > 0) {
+              dev.picking_id = pickings[0].id;
+              if (pickings[0].partner_id) {
+                dev.partner_id = pickings[0].partner_id[0];
+                if (!dev.partner_name || dev.partner_name === '') {
+                  dev.partner_name = pickings[0].partner_id[1];
+                }
+              }
+              changed = true;
+              console.log(`  ✅ ${dev.picking_name} → picking_id: ${dev.picking_id}, partner_id: ${dev.partner_id}, partner: ${dev.partner_name}`);
+            } else {
+              console.log(`  ⚠️ ${dev.picking_name} → No encontrado en Odoo`);
+            }
+          } catch (err) {
+            console.error(`  ⚠️ ${dev.picking_name}: ${err.message}`);
+          }
+        }
+      } catch (authErr) {
+        console.error('⚠️ [STARTUP] No se pudo conectar a Odoo para resolver picking_ids:', authErr.message);
+      }
+    }
+
+    // Paso 1b: Migrar partner_id para entradas que tienen picking_id pero no partner_id
+    const sinPartnerId = devoluciones.filter(d => !d.partner_id && d.picking_id);
+    if (sinPartnerId.length > 0) {
+      console.log(`🔄 [STARTUP] Migrando partner_id para ${sinPartnerId.length} devoluciones...`);
+
+      try {
+        const common = xmlrpc.createSecureClient({ url: `${process.env.ODOO_URL}/xmlrpc/2/common` });
+        const models = xmlrpc.createSecureClient({ url: `${process.env.ODOO_URL}/xmlrpc/2/object` });
+
+        const uid = await new Promise((resolve, reject) => {
+          common.methodCall('authenticate', [
+            process.env.ODOO_DATABASE, process.env.ODOO_USERNAME, process.env.ODOO_PASSWORD, {}
+          ], (err, r) => err ? reject(err) : resolve(r));
+        });
+
+        for (const dev of sinPartnerId) {
+          try {
+            const pickings = await new Promise((resolve, reject) => {
+              models.methodCall('execute_kw', [
+                process.env.ODOO_DATABASE, uid, process.env.ODOO_PASSWORD,
+                'stock.picking', 'search_read',
+                [[['id', '=', dev.picking_id]]],
+                { fields: ['partner_id'], limit: 1 }
+              ], (err, r) => err ? reject(err) : resolve(r));
+            });
+
+            if (pickings.length > 0 && pickings[0].partner_id) {
+              dev.partner_id = pickings[0].partner_id[0];
+              if (!dev.partner_name || dev.partner_name === '') {
+                dev.partner_name = pickings[0].partner_id[1];
+              }
+              changed = true;
+              console.log(`  ✅ ${dev.picking_name} → partner_id: ${dev.partner_id}`);
+            }
+          } catch (err) {
+            console.error(`  ⚠️ ${dev.picking_name}: ${err.message}`);
+          }
+        }
+      } catch (authErr) {
+        console.error('⚠️ [STARTUP] No se pudo conectar a Odoo para migrar partner_ids:', authErr.message);
+      }
+    }
+
+    // Paso 2: Auto-check RMA para entradas con partner_id pero sin rma_cache
+    const sinRMACache = devoluciones.filter(d => d.partner_id && !d.rma_cache);
+    if (sinRMACache.length > 0) {
+      console.log(`🔄 [STARTUP] Verificando RMA para ${sinRMACache.length} devoluciones...`);
+
+      try {
+        const common = xmlrpc.createSecureClient({ url: `${process.env.ODOO_URL}/xmlrpc/2/common` });
+        const models = xmlrpc.createSecureClient({ url: `${process.env.ODOO_URL}/xmlrpc/2/object` });
+
+        const uid = await new Promise((resolve, reject) => {
+          common.methodCall('authenticate', [
+            process.env.ODOO_DATABASE, process.env.ODOO_USERNAME, process.env.ODOO_PASSWORD, {}
+          ], (err, r) => err ? reject(err) : resolve(r));
+        });
+
+        // Deduplicar por partner_id para no hacer queries repetidos
+        const uniquePartnerIds = [...new Set(sinRMACache.map(d => d.partner_id))];
+        const rmaResults = {};
+
+        for (const partnerId of uniquePartnerIds) {
+          try {
+            const tickets = await new Promise((resolve, reject) => {
+              models.methodCall('execute_kw', [
+                process.env.ODOO_DATABASE, uid, process.env.ODOO_PASSWORD,
+                'helpdesk.ticket', 'search_read',
+                [[
+                  ['partner_id', '=', parseInt(partnerId)],
+                  ['team_id.name', 'ilike', 'SAC - B2B']
+                ]],
+                {
+                  fields: ['id', 'name', 'partner_id', 'team_id', 'stage_id', 'tag_ids', 'create_date', 'sale_order_id'],
+                  order: 'create_date desc',
+                  limit: 10
+                }
+              ], (err, r) => err ? reject(err) : resolve(r));
+            });
+
+            // Resolver tags
+            let ticketsConTags = tickets;
+            if (tickets.length > 0) {
+              const allTagIds = [...new Set(tickets.flatMap(t => t.tag_ids || []))];
+              if (allTagIds.length > 0) {
+                const tags = await new Promise((resolve, reject) => {
+                  models.methodCall('execute_kw', [
+                    process.env.ODOO_DATABASE, uid, process.env.ODOO_PASSWORD,
+                    'helpdesk.tag', 'read',
+                    [allTagIds],
+                    { fields: ['id', 'name'] }
+                  ], (err, r) => err ? reject(err) : resolve(r));
+                });
+                const tagMap = {};
+                tags.forEach(t => tagMap[t.id] = t.name);
+                ticketsConTags = tickets.map(t => ({
+                  ...t,
+                  tags: (t.tag_ids || []).map(id => tagMap[id]).filter(Boolean)
+                }));
+              }
+            }
+
+            const resultado = ticketsConTags.map(t => ({
+              id: t.id,
+              nombre: t.name,
+              equipo: t.team_id ? t.team_id[1] : null,
+              estado: t.stage_id ? t.stage_id[1] : null,
+              etiquetas: t.tags || [],
+              fecha: t.create_date,
+              pedido: t.sale_order_id ? t.sale_order_id[1] : null
+            }));
+
+            rmaResults[partnerId] = { tiene_rma: resultado.length > 0, tickets: resultado };
+            console.log(`  ${resultado.length > 0 ? '✅' : '⚠️'} Partner ${partnerId}: ${resultado.length} tickets RMA`);
+          } catch (err) {
+            console.error(`  ⚠️ Partner ${partnerId}: ${err.message}`);
+            rmaResults[partnerId] = { tiene_rma: false, tickets: [] };
+          }
+        }
+
+        // Aplicar rma_cache a cada devolución
+        for (const dev of sinRMACache) {
+          if (rmaResults[dev.partner_id]) {
+            dev.rma_cache = {
+              ...rmaResults[dev.partner_id],
+              cached_at: new Date().toISOString()
+            };
+            changed = true;
+          }
+        }
+      } catch (authErr) {
+        console.error('⚠️ [STARTUP] No se pudo conectar a Odoo para verificar RMA:', authErr.message);
+      }
+    }
+
+    // Guardar si hubo cambios
+    if (changed) {
+      await saveDevoluciones(devoluciones);
+      console.log(`💾 [STARTUP] Devoluciones actualizadas y guardadas`);
+    } else {
+      console.log(`✅ [STARTUP] Todas las devoluciones ya están completas`);
+    }
+
+  } catch (error) {
+    console.error('❌ [STARTUP] Error en migración automática:', error.message);
+    // No fallar el arranque por un error de migración
+  }
 }
 
 // Buscar en Odoo por diferentes criterios
@@ -2894,4 +3165,13 @@ app.get("/api/packing/download/:filename", (req, res) => {
   const filePath = path.join(__dirname, 'packing-outputs', req.params.filename);
   res.download(filePath);
 });
-server.listen(PORT, '0.0.0.0', () => console.log(` 🚀  CEREBRO CLAUDE + CFO IA + DEVOLUCIONES B2B ACTIVO en ${PORT}`));
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(` 🚀  CEREBRO CLAUDE + CFO IA + DEVOLUCIONES B2B ACTIVO en ${PORT}`);
+
+  // Auto-migración en background (no bloquea el arranque)
+  startupMigration().then(() => {
+    console.log('✅ [STARTUP] Migración automática completada');
+  }).catch(err => {
+    console.error('⚠️ [STARTUP] Error en migración (servidor sigue funcionando):', err.message);
+  });
+});
