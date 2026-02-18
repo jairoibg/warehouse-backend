@@ -57,7 +57,7 @@ const SERVER_HOST = process.env.SERVER_HOST || "localhost";
 // Rutas de Datos
 // ⭐ PERSISTENCIA: Si hay un volumen montado en Railway, usar esa ruta para datos persistentes
 const PERSISTENT_DATA_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH
-  ? path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, "data")
+  ? process.env.RAILWAY_VOLUME_MOUNT_PATH
   : path.join(__dirname, "data");
 const LOCAL_DATA_DIR = path.join(__dirname, "data"); // Siempre apunta al código (para seed)
 
@@ -92,6 +92,13 @@ if (!fsSync.existsSync(DEVOLUCIONES_FILE)) {
 if (process.env.RAILWAY_VOLUME_MOUNT_PATH) {
   console.log(`💾 [PERSISTENCIA] Volumen montado en: ${process.env.RAILWAY_VOLUME_MOUNT_PATH}`);
   console.log(`💾 [PERSISTENCIA] Datos persistentes en: ${PERSISTENT_DATA_DIR}`);
+
+  // Copiar locations.json del código al volumen si no existe (primer deploy con volumen)
+  const localLocations = path.join(LOCAL_DATA_DIR, "locations.json");
+  if (!fsSync.existsSync(LOCATIONS_FILE) && fsSync.existsSync(localLocations)) {
+    fsSync.copyFileSync(localLocations, LOCATIONS_FILE);
+    console.log(`📋 [PERSISTENCIA] locations.json copiado al volumen desde código`);
+  }
 } else {
   console.log('⚠️ [PERSISTENCIA] Sin volumen montado - datos en filesystem efímero');
 }
