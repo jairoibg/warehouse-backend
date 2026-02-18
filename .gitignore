@@ -3,4 +3,3 @@ node_modules
 
 # Datos de runtime - se modifican en producción, no deben sobrescribirse
 data/devoluciones.json
-data/locations.json
