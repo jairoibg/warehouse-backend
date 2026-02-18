@@ -856,6 +856,44 @@ app.delete("/api/devoluciones/:id", async (req, res) => {
   }
 });
 
+// 5b. Editar devolución (corregir datos tras registro)
+app.patch("/api/devoluciones/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+    let devoluciones = await getDevoluciones();
+
+    const index = devoluciones.findIndex(d => d.id === parseInt(id));
+    if (index === -1) {
+      return res.status(404).json({ error: 'Devolución no encontrada' });
+    }
+
+    // Campos editables (no permitir cambiar id, picking_id, rma_cache)
+    const camposEditables = ['picking_name', 'partner_name', 'company', 'tracking_retorno', 'recibido_por', 'notas'];
+    const cambios = {};
+    for (const campo of camposEditables) {
+      if (updates[campo] !== undefined) {
+        devoluciones[index][campo] = updates[campo];
+        cambios[campo] = updates[campo];
+      }
+    }
+
+    if (Object.keys(cambios).length === 0) {
+      return res.status(400).json({ error: 'No se proporcionaron campos editables' });
+    }
+
+    devoluciones[index].updated_at = new Date().toISOString();
+    await saveDevoluciones(devoluciones);
+
+    console.log(`✏️ [DEVOLUCIONES] Editada: ${devoluciones[index].picking_name} → ${JSON.stringify(cambios)}`);
+
+    res.json({ success: true, devolucion: devoluciones[index] });
+  } catch (error) {
+    console.error('❌ Error editando devolución:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 6. Buscar RMA del cliente en Helpdesk
 app.get("/api/devoluciones/rma/:partner_id", async (req, res) => {
   try {
