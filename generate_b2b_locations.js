@@ -57,7 +57,7 @@ function generateB2BLocations() {
             for (const block of B2B_CONFIG.blocks) {
                 for (const level of B2B_CONFIG.levels) {
                     for (const position of B2B_CONFIG.positions) {
-                        const locationId = `CLABD/Stock/EXTB2B${brandSuffix}/CLA-${aisle}-${block}-${level}-${position}`;
+                        const locationId = `CLA${brandSuffix}/Stock/EXTB2B${brandSuffix}/CLA-${aisle}-${block}-${level}-${position}`;
                         
                         // Calcular coordenadas visuales
                         const blockNum = parseInt(block);

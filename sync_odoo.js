@@ -104,16 +104,39 @@ function getWarehouseType(fullName) {
  * Incluye el tipo de almacén para evitar colisiones entre B2C y B2B
  * que podrían tener el mismo código CLA-XXX-XX-XX-XX.
  */
+/**
+ * Extrae el sufijo de marca de un nombre de ubicación Odoo.
+ * Busca en las partes estructurales (Storage??, EXTB2B??, prefijo CLA??)
+ * en lugar de usar includes() simple que puede dar falsos positivos.
+ *
+ * Ejemplos:
+ *   "CLAGD/Stock/EXTB2BGD/CLA-017-04-01-01" → "GD" (no "BD")
+ *   "CLABD/Stock/StorageBD/CLA-004-01-01-01" → "BD"
+ *   "CLAWD/Stock/EXTB2BWD/CLA-001-01-01-01" → "WD"
+ */
+function extractBrandSuffix(fullName) {
+  if (!fullName) return '';
+
+  // Prioridad 1: EXTB2B seguido de sufijo (EXTB2BBD, EXTB2BGD, EXTB2BWD)
+  const b2bMatch = fullName.match(/EXTB2B([BGW]D)/);
+  if (b2bMatch) return b2bMatch[1];
+
+  // Prioridad 2: Storage seguido de sufijo (StorageBD, StorageGD, StorageWD)
+  const storageMatch = fullName.match(/Storage([BGW]D)/);
+  if (storageMatch) return storageMatch[1];
+
+  // Prioridad 3: Prefijo CLA al inicio del path (CLABD/, CLAGD/, CLAWD/)
+  const prefixMatch = fullName.match(/CLA([BGW]D)\//);
+  if (prefixMatch) return prefixMatch[1];
+
+  return '';
+}
+
 function buildLocationKey(fullName) {
   const locId = findLocationID(fullName);
   const whType = getWarehouseType(fullName);
-  
-  // Extraer el sufijo de marca (BD, GD, WD)
-  let brandSuffix = '';
-  if (fullName.includes('BD')) brandSuffix = 'BD';
-  else if (fullName.includes('GD')) brandSuffix = 'GD';
-  else if (fullName.includes('WD') || fullName.includes('WH')) brandSuffix = 'WD';
-  
+  const brandSuffix = extractBrandSuffix(fullName);
+
   return `${whType}:${brandSuffix}:${locId}`;
 }
 
@@ -123,12 +146,8 @@ function buildLocationKey(fullName) {
 function extractKeyFromLocationId(locationId) {
   const locId = findLocationID(locationId);
   const whType = getWarehouseType(locationId);
-  
-  let brandSuffix = '';
-  if (locationId.includes('BD')) brandSuffix = 'BD';
-  else if (locationId.includes('GD')) brandSuffix = 'GD';
-  else if (locationId.includes('WD') || locationId.includes('WH')) brandSuffix = 'WD';
-  
+  const brandSuffix = extractBrandSuffix(locationId);
+
   return `${whType}:${brandSuffix}:${locId}`;
 }
 
@@ -487,6 +506,33 @@ export async function syncWithOdoo() {
     let locations = JSON.parse(rawData);
     const uid = await odooAuth();
 
+    // Sanitizar IDs corruptos (doble prefijo, ej: "CLAGD/Stock/StorageGD/CLAGD/Stock/EXTB2BGD/CLA-...")
+    let sanitized = 0;
+    locations = locations.map(loc => {
+      // Detectar IDs con doble ruta: contiene dos veces "/Stock/"
+      const stockCount = (loc.id.match(/\/Stock\//g) || []).length;
+      if (stockCount > 1) {
+        // Extraer la última ruta válida (desde el segundo CLA?? en adelante)
+        const lastValid = loc.id.match(/(CLA[BGW]D\/Stock\/(?:Storage|EXTB2B|Playa)[^\s/]*\/CLA-\d{3}-\d{2}-\d{2}-\d{2})$/);
+        if (lastValid) {
+          sanitized++;
+          return { ...loc, id: lastValid[1] };
+        }
+      }
+      return loc;
+    });
+    if (sanitized > 0) {
+      console.log(` 🔧  Sanitizados ${sanitized} IDs de ubicación corruptos`);
+    }
+
+    // Eliminar duplicados que puedan surgir de la sanitización
+    const seenIds = new Set();
+    locations = locations.filter(loc => {
+      if (seenIds.has(loc.id)) return false;
+      seenIds.add(loc.id);
+      return true;
+    });
+
     // Estadísticas por tipo de almacén
     const b2cCount = locations.filter(l => l.id.includes('Storage')).length;
     const b2bCount = locations.filter(l => l.id.includes('EXTB2B')).length;
@@ -822,29 +868,32 @@ async function quickSyncByFilter(filterName, locationFilter) {
     const rawData = await fs.readFile(LOCATIONS_FILE, 'utf-8');
     let locations = JSON.parse(rawData);
     
-    // Agrupar stock por ubicación
-    const stockByLocation = {};
+    // Agrupar stock por clave única (misma lógica que syncWithOdoo)
+    const stockByKey = {};
     stockData.forEach(q => {
-      const locName = q.location_id[1]; // Nombre completo de ubicación
-      if (!stockByLocation[locName]) {
-        stockByLocation[locName] = { 
-          qty: 0, 
+      if (!q.location_id) return;
+      const fullName = q.location_id[1];
+      const key = buildLocationKey(fullName);
+
+      if (!stockByKey[key]) {
+        stockByKey[key] = {
+          qty: 0,
           reserved: 0,
           packages: new Set(),
           items: []
         };
       }
-      stockByLocation[locName].qty += q.quantity || 0;
-      stockByLocation[locName].reserved += q.reserved_quantity || 0;
+      stockByKey[key].qty += q.quantity || 0;
+      stockByKey[key].reserved += q.reserved_quantity || 0;
       if (q.package_id) {
-        stockByLocation[locName].packages.add(q.package_id[1]);
+        stockByKey[key].packages.add(q.package_id[1]);
       }
       // Extraer productCode del nombre: "[COSH215053-LEOP-24] ESPADRILLES..." → "COSH215053-LEOP-24"
       const prodName = q.product_id[1] || '';
       const codeMatch = prodName.match(/^\[([^\]]+)\]/);
       const productCode = codeMatch ? codeMatch[1] : prodName.split(']')[0].replace('[','') || 'SIN_REF';
 
-      stockByLocation[locName].items.push({
+      stockByKey[key].items.push({
         packageId: q.package_id ? q.package_id[1] : 'SIN_PAQUETE',
         productCode: productCode,
         surtido: prodName,
@@ -855,29 +904,21 @@ async function quickSyncByFilter(filterName, locationFilter) {
         daysOld: 0
       });
     });
-    
+
     // Actualizar solo ubicaciones que coinciden con el filtro
     let updated = 0;
     let cleared = 0;
-    
+
     locations = locations.map(loc => {
       // Solo procesar ubicaciones que coinciden con el filtro
       const matchesFilter = loc.id.toLowerCase().includes(locationFilter.replace(/%/g, '').toLowerCase());
       if (!matchesFilter) return loc;
-      
-      // Buscar stock para esta ubicación
-      const matchingKey = Object.keys(stockByLocation).find(k => {
-        // Para ubicaciones Playa: comparar por nombre completo (no tienen CLA-XXX-XX-XX-XX)
-        if (loc.id.includes('Playa')) {
-          return k === loc.id;
-        }
-        // Para ubicaciones normales: comparar la parte final del ID (CLA-XXX-XX-XX-XX)
-        const locCode = loc.id.match(/CLA-\d{3}-\d{2}-\d{2}-\d{2}/)?.[0];
-        return locCode && k.includes(locCode);
-      });
-      
-      if (matchingKey) {
-        const data = stockByLocation[matchingKey];
+
+      // Usar la misma clave que syncWithOdoo para hacer match
+      const myKey = extractKeyFromLocationId(loc.id);
+      const data = stockByKey[myKey];
+
+      if (data) {
         updated++;
         return {
           ...loc,
