@@ -347,6 +347,17 @@ async function startupMigration() {
       }
     }
 
+    // Paso 1c: Invalidar cachés RMA negativos que no fueron consultados con commercial_partner_id (v2)
+    // Esto corrige falsos negativos de la versión anterior que buscaba solo por partner_id exacto
+    const cachesNegativosV1 = devoluciones.filter(d =>
+      d.rma_cache && d.rma_cache.tiene_rma === false && d.partner_id && !d.rma_cache.search_version
+    );
+    if (cachesNegativosV1.length > 0) {
+      console.log(`🔄 [STARTUP] Invalidando ${cachesNegativosV1.length} cachés RMA negativos (v1) para re-verificar con commercial_partner_id...`);
+      cachesNegativosV1.forEach(d => { delete d.rma_cache; });
+      changed = true;
+    }
+
     // Paso 2: Auto-check RMA para entradas con partner_id pero sin rma_cache
     const sinRMACache = devoluciones.filter(d => d.partner_id && !d.rma_cache);
     if (sinRMACache.length > 0) {
@@ -366,14 +377,41 @@ async function startupMigration() {
         const uniquePartnerIds = [...new Set(sinRMACache.map(d => d.partner_id))];
         const rmaResults = {};
 
-        for (const partnerId of uniquePartnerIds) {
+        // Resolver commercial_partner_id para cada partner (direcciones de entrega → contacto comercial raíz)
+        const commercialMap = {};
+        try {
+          const partnerDataList = await new Promise((resolve, reject) => {
+            models.methodCall('execute_kw', [
+              process.env.ODOO_DATABASE, uid, process.env.ODOO_PASSWORD,
+              'res.partner', 'read',
+              [uniquePartnerIds.map(id => parseInt(id))],
+              { fields: ['id', 'commercial_partner_id'] }
+            ], (err, r) => err ? reject(err) : resolve(r));
+          });
+          partnerDataList.forEach(p => {
+            commercialMap[p.id] = p.commercial_partner_id ? p.commercial_partner_id[0] : p.id;
+          });
+        } catch (err) {
+          console.error('  ⚠️ No se pudieron resolver commercial_partner_ids:', err.message);
+          uniquePartnerIds.forEach(id => { commercialMap[id] = parseInt(id); });
+        }
+
+        // Deduplicar por commercial_partner_id para no repetir queries del mismo cliente comercial
+        const commercialToPartners = {};
+        uniquePartnerIds.forEach(pid => {
+          const cpid = commercialMap[pid] || parseInt(pid);
+          if (!commercialToPartners[cpid]) commercialToPartners[cpid] = [];
+          commercialToPartners[cpid].push(pid);
+        });
+
+        for (const [commercialId, partnerIds] of Object.entries(commercialToPartners)) {
           try {
             const tickets = await new Promise((resolve, reject) => {
               models.methodCall('execute_kw', [
                 process.env.ODOO_DATABASE, uid, process.env.ODOO_PASSWORD,
                 'helpdesk.ticket', 'search_read',
                 [[
-                  ['partner_id', '=', parseInt(partnerId)],
+                  ['partner_id.commercial_partner_id', '=', parseInt(commercialId)],
                   ['team_id.name', 'ilike', 'SAC - B2B']
                 ]],
                 {
@@ -416,11 +454,13 @@ async function startupMigration() {
               pedido: t.sale_order_id ? t.sale_order_id[1] : null
             }));
 
-            rmaResults[partnerId] = { tiene_rma: resultado.length > 0, tickets: resultado };
-            console.log(`  ${resultado.length > 0 ? '✅' : '⚠️'} Partner ${partnerId}: ${resultado.length} tickets RMA`);
+            // Asignar el mismo resultado a todos los partner_ids que comparten el mismo commercial_partner_id
+            const rmaData = { tiene_rma: resultado.length > 0, tickets: resultado };
+            partnerIds.forEach(pid => { rmaResults[pid] = rmaData; });
+            console.log(`  ${resultado.length > 0 ? '✅' : '⚠️'} Commercial ${commercialId} (partners: ${partnerIds.join(',')}): ${resultado.length} tickets RMA`);
           } catch (err) {
-            console.error(`  ⚠️ Partner ${partnerId}: ${err.message}`);
-            rmaResults[partnerId] = { tiene_rma: false, tickets: [] };
+            console.error(`  ⚠️ Commercial ${commercialId}: ${err.message}`);
+            partnerIds.forEach(pid => { rmaResults[pid] = { tiene_rma: false, tickets: [] }; });
           }
         }
 
@@ -429,7 +469,8 @@ async function startupMigration() {
           if (rmaResults[dev.partner_id]) {
             dev.rma_cache = {
               ...rmaResults[dev.partner_id],
-              cached_at: new Date().toISOString()
+              cached_at: new Date().toISOString(),
+              search_version: 2
             };
             changed = true;
           }
@@ -895,10 +936,11 @@ app.patch("/api/devoluciones/:id", async (req, res) => {
 });
 
 // 6. Buscar RMA del cliente en Helpdesk
+// Usa commercial_partner_id para encontrar tickets tanto del contacto padre como de direcciones hijas
 app.get("/api/devoluciones/rma/:partner_id", async (req, res) => {
   try {
     const { partner_id } = req.params;
-    
+
     if (!partner_id) {
       return res.status(400).json({ error: 'Partner ID requerido' });
     }
@@ -912,12 +954,32 @@ app.get("/api/devoluciones/rma/:partner_id", async (req, res) => {
       ], (err, res) => err ? reject(err) : resolve(res));
     });
 
+    // Paso 1: Obtener el commercial_partner_id (contacto comercial raíz)
+    // Esto resuelve el problema de que el albarán tenga una dirección de entrega (hijo)
+    // pero el ticket esté asociado al contacto principal (padre) o viceversa
+    const partnerData = await new Promise((resolve, reject) => {
+      models.methodCall('execute_kw', [
+        process.env.ODOO_DATABASE, uid, process.env.ODOO_PASSWORD,
+        'res.partner', 'read',
+        [[parseInt(partner_id)]],
+        { fields: ['commercial_partner_id'] }
+      ], (err, res) => err ? reject(err) : resolve(res));
+    });
+
+    const commercialPartnerId = (partnerData && partnerData.length > 0 && partnerData[0].commercial_partner_id)
+      ? partnerData[0].commercial_partner_id[0]
+      : parseInt(partner_id);
+
+    console.log(`🔍 RMA: partner_id=${partner_id}, commercial_partner_id=${commercialPartnerId}`);
+
+    // Paso 2: Buscar tickets usando commercial_partner_id para capturar tickets
+    // asociados a cualquier dirección/contacto del mismo cliente comercial
     const tickets = await new Promise((resolve, reject) => {
       models.methodCall('execute_kw', [
         process.env.ODOO_DATABASE, uid, process.env.ODOO_PASSWORD,
         'helpdesk.ticket', 'search_read',
         [[
-          ['partner_id', '=', parseInt(partner_id)],
+          ['partner_id.commercial_partner_id', '=', commercialPartnerId],
           ['team_id.name', 'ilike', 'SAC - B2B']
         ]],
         {
@@ -931,7 +993,7 @@ app.get("/api/devoluciones/rma/:partner_id", async (req, res) => {
     let ticketsConTags = tickets;
     if (tickets.length > 0) {
       const allTagIds = [...new Set(tickets.flatMap(t => t.tag_ids || []))];
-      
+
       if (allTagIds.length > 0) {
         const tags = await new Promise((resolve, reject) => {
           models.methodCall('execute_kw', [
@@ -941,10 +1003,10 @@ app.get("/api/devoluciones/rma/:partner_id", async (req, res) => {
             { fields: ['id', 'name'] }
           ], (err, res) => err ? reject(err) : resolve(res));
         });
-        
+
         const tagMap = {};
         tags.forEach(t => tagMap[t.id] = t.name);
-        
+
         ticketsConTags = tickets.map(t => ({
           ...t,
           tags: (t.tag_ids || []).map(id => tagMap[id]).filter(Boolean)
@@ -962,11 +1024,11 @@ app.get("/api/devoluciones/rma/:partner_id", async (req, res) => {
       pedido: t.sale_order_id ? t.sale_order_id[1] : null
     }));
 
-    console.log('RMA Partner ' + partner_id + ': ' + resultado.length + ' tickets');
-    
-    res.json({ 
+    console.log('RMA Partner ' + partner_id + ' (commercial: ' + commercialPartnerId + '): ' + resultado.length + ' tickets');
+
+    res.json({
       tiene_rma: resultado.length > 0,
-      tickets: resultado 
+      tickets: resultado
     });
 
   } catch (error) {
@@ -983,7 +1045,7 @@ app.patch("/api/devoluciones/:id/rma", async (req, res) => {
     let devoluciones = await getDevoluciones();
     const idx = devoluciones.findIndex(d => d.id == devId);
     if (idx === -1) return res.status(404).json({ error: 'Devolución no encontrada' });
-    devoluciones[idx].rma_cache = { tiene_rma, tickets, cached_at: new Date().toISOString() };
+    devoluciones[idx].rma_cache = { tiene_rma, tickets, cached_at: new Date().toISOString(), search_version: 2 };
     await saveDevoluciones(devoluciones);
     res.json({ success: true });
   } catch (error) {
