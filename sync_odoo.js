@@ -533,6 +533,52 @@ export async function syncWithOdoo() {
       return true;
     });
 
+    // ==================================================================================
+    //  ENFORCEMENT DE ESTRUCTURA B2B: Garantizar que el pasillo 004 (BD) existe
+    //  con sus 9 bloques (01-09), 3 niveles (01-03) y 3 posiciones (01-03).
+    //  Estructura idéntica a pasillos 001-008 BD.
+    // ==================================================================================
+    const existingB2BIds = new Set(
+      locations.filter(l => l.id.includes('EXTB2B')).map(l => l.id)
+    );
+    let createdCount = 0;
+    const P004_BLOCKS = ['01','02','03','04','05','06','07','08','09'];
+    const P004_LEVELS = ['01','02','03'];
+    const P004_POSITIONS = ['01','02','03'];
+
+    for (const block of P004_BLOCKS) {
+      for (const level of P004_LEVELS) {
+        for (const position of P004_POSITIONS) {
+          const locId = `CLABD/Stock/EXTB2BBD/CLA-004-${block}-${level}-${position}`;
+          if (!existingB2BIds.has(locId) && !seenIds.has(locId)) {
+            locations.push({
+              id: locId,
+              aisle: '004',
+              block,
+              level,
+              position,
+              totalStock: 0,
+              totalReserved: 0,
+              status: 'FREE',
+              packages: [],
+              x: 0,
+              y: 0,
+              type: 'B2B',
+              sinDatos: false,
+              brand: 'BLACK',
+              occupancyPercentage: 0,
+              velocityScore: 0
+            });
+            seenIds.add(locId);
+            createdCount++;
+          }
+        }
+      }
+    }
+    if (createdCount > 0) {
+      console.log(` 🏗️  Enforcement B2B: creadas ${createdCount} ubicaciones para pasillo 004 (BD)`);
+    }
+
     // Estadísticas por tipo de almacén
     const b2cCount = locations.filter(l => l.id.includes('Storage')).length;
     const b2bCount = locations.filter(l => l.id.includes('EXTB2B')).length;
@@ -867,7 +913,33 @@ async function quickSyncByFilter(filterName, locationFilter) {
     // Cargar locations.json actual
     const rawData = await fs.readFile(LOCATIONS_FILE, 'utf-8');
     let locations = JSON.parse(rawData);
-    
+
+    // Enforcement pasillo 004 BD en quick-sync B2B
+    if (filterName === 'B2B') {
+      const existingIds = new Set(locations.map(l => l.id));
+      let qsCreated = 0;
+      for (const block of ['01','02','03','04','05','06','07','08','09']) {
+        for (const level of ['01','02','03']) {
+          for (const position of ['01','02','03']) {
+            const locId = `CLABD/Stock/EXTB2BBD/CLA-004-${block}-${level}-${position}`;
+            if (!existingIds.has(locId)) {
+              locations.push({
+                id: locId, aisle: '004', block, level, position,
+                totalStock: 0, totalReserved: 0, status: 'FREE',
+                packages: [], x: 0, y: 0, type: 'B2B', sinDatos: false,
+                brand: 'BLACK', occupancyPercentage: 0, velocityScore: 0
+              });
+              existingIds.add(locId);
+              qsCreated++;
+            }
+          }
+        }
+      }
+      if (qsCreated > 0) {
+        console.log(`⚡ [QUICK-SYNC] Enforcement: creadas ${qsCreated} ubicaciones para pasillo 004 BD`);
+      }
+    }
+
     // Agrupar stock por clave única (misma lógica que syncWithOdoo)
     const stockByKey = {};
     stockData.forEach(q => {

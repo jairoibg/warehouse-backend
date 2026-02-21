@@ -12,9 +12,9 @@ const LOCATIONS_FILE = path.join(__dirname, 'data', 'locations.json');
 
 // Configuración B2B basada en datos de Odoo
 const B2B_CONFIG = {
-    // Pasillos operativos (sin el 004 que es B2C)
-    aisles: ['001', '002', '003', '005', '006', '007', '008', '009', '010', 
-             '011', '012', '013', '014', '015', '016', '017', '018', '019', 
+    // Pasillos operativos (004 se gestiona via enforcement en sync_odoo.js solo para BD)
+    aisles: ['001', '002', '003', '005', '006', '007', '008', '009', '010',
+             '011', '012', '013', '014', '015', '016', '017', '018', '019',
              '020', '021', '031'],
     
     // Bloques por pasillo (01-09 y 17-19)
