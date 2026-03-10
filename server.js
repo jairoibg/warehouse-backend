@@ -1537,7 +1537,7 @@ app.post("/api/strategic-chat", async (req, res) => {
 
     const anthropic = getAnthropicClient();
     const response = await anthropic.messages.create({
-      model: "claude-3-haiku-20240307", // ✅ Modelo RÁPIDO
+      model: "claude-haiku-4-5-20251001", // ✅ Modelo RÁPIDO
       max_tokens: 2048,
       system: systemPrompt,
       messages: claudeMessages
@@ -1921,7 +1921,7 @@ app.post("/api/ai/report", async (req, res) => {
     // Primera llamada a Claude con herramientas
     const anthropic = getAnthropicClient();
     let response = await anthropic.messages.create({
-      model: "claude-3-haiku-20240307", // ✅ MODELO RÁPIDO HAIKU
+      model: "claude-haiku-4-5-20251001", // ✅ MODELO RÁPIDO HAIKU
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
       tools: claudeTools,
@@ -1977,7 +1977,7 @@ app.post("/api/ai/report", async (req, res) => {
       claudeMessages.push({ role: "user", content: toolResults });
 
       response = await anthropic.messages.create({
-        model: "claude-3-haiku-20240307", // ✅ MANTENEMOS HAIKU EN LA VUELTA
+        model: "claude-haiku-4-5-20251001", // ✅ MANTENEMOS HAIKU EN LA VUELTA
         max_tokens: 4096,
         system: SYSTEM_PROMPT,
         tools: claudeTools,
@@ -2762,7 +2762,7 @@ except Exception as e:
     const anthropic = getAnthropicClient();
     
     const aiResponse = await anthropic.messages.create({
-      model: "claude-3-haiku-20240307",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 4096,
       system: `Eres un experto en logística analizando packing lists de contenedores.
 Tu tarea es extraer las REFERENCIAS DE PRODUCTOS y sus CANTIDADES de cualquier formato de packing list.
