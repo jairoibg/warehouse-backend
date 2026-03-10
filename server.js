@@ -110,7 +110,7 @@ let _anthropicClient = null;
 
 function getAnthropicClient() {
   if (!_anthropicClient) {
-    const apiKey = process.env.ANTHROPIC_API_KEY || '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';
+    const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       throw new Error("ANTHROPIC_API_KEY no está configurada. Verifica las variables de entorno en Railway.");
     }
