@@ -606,6 +606,35 @@ if (!fsSync.existsSync('./packing-outputs')) fsSync.mkdirSync('./packing-outputs
 //  ⭐ ENDPOINTS DEVOLUCIONES B2B
 // ==================================================================================
 
+// 0. Diagnóstico de devoluciones (temporal)
+app.get("/api/devoluciones/debug", async (req, res) => {
+  try {
+    const runtimeExists = fsSync.existsSync(DEVOLUCIONES_FILE);
+    const seedExists = fsSync.existsSync(DEVOLUCIONES_SEED_FILE);
+    let runtimeData = [], seedData = [];
+    try { runtimeData = JSON.parse(await fs.readFile(DEVOLUCIONES_FILE, 'utf8')); } catch(e) {}
+    try { seedData = JSON.parse(await fs.readFile(DEVOLUCIONES_SEED_FILE, 'utf8')); } catch(e) {}
+
+    // List files in persistent dir
+    let persistentFiles = [];
+    try { persistentFiles = fsSync.readdirSync(PERSISTENT_DATA_DIR); } catch(e) {}
+    let localFiles = [];
+    try { localFiles = fsSync.readdirSync(LOCAL_DATA_DIR); } catch(e) {}
+
+    res.json({
+      persistent_dir: PERSISTENT_DATA_DIR,
+      local_dir: LOCAL_DATA_DIR,
+      railway_volume: process.env.RAILWAY_VOLUME_MOUNT_PATH || 'NOT SET',
+      runtime_file: { path: DEVOLUCIONES_FILE, exists: runtimeExists, count: runtimeData.length },
+      seed_file: { path: DEVOLUCIONES_SEED_FILE, exists: seedExists, count: seedData.length },
+      persistent_files: persistentFiles,
+      local_files: localFiles
+    });
+  } catch(e) {
+    res.status(500).json({ error: e.message, stack: e.stack });
+  }
+});
+
 // 1. Buscar expediciones en Odoo
 app.get("/api/devoluciones/buscar", async (req, res) => {
   try {
