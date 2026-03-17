@@ -939,7 +939,7 @@ app.patch("/api/devoluciones/:id", async (req, res) => {
     }
 
     // Campos editables (no permitir cambiar id, picking_id, rma_cache)
-    const camposEditables = ['picking_name', 'partner_name', 'company', 'tracking_retorno', 'recibido_por', 'notas'];
+    const camposEditables = ['picking_name', 'partner_name', 'company', 'tracking_retorno', 'recibido_por', 'notas', 'fecha_recepcion'];
     const cambios = {};
     for (const campo of camposEditables) {
       if (updates[campo] !== undefined) {
@@ -1079,6 +1079,31 @@ app.patch("/api/devoluciones/:id/rma", async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error guardando RMA cache:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 7b. Fix fechas en batch (temporal para recuperación)
+app.post("/api/devoluciones/fix-dates", async (req, res) => {
+  try {
+    const { fixes } = req.body;
+    if (!fixes || !Array.isArray(fixes)) {
+      return res.status(400).json({ error: 'Se requiere un array de fixes [{picking_name, fecha_recepcion}]' });
+    }
+    const devoluciones = await getDevoluciones();
+    let updated = 0;
+    for (const fix of fixes) {
+      const dev = devoluciones.find(d => d.picking_name === fix.picking_name);
+      if (dev) {
+        dev.fecha_recepcion = fix.fecha_recepcion;
+        updated++;
+      }
+    }
+    await saveDevoluciones(devoluciones);
+    console.log(`🔧 [DEVOLUCIONES] Fechas corregidas: ${updated}/${fixes.length}`);
+    res.json({ success: true, updated, total: fixes.length });
+  } catch (error) {
+    console.error('❌ Error corrigiendo fechas:', error);
     res.status(500).json({ error: error.message });
   }
 });
