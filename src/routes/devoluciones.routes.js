@@ -268,6 +268,29 @@ router.post('/migrate-partner-ids', asyncHandler(async (req, res) => {
   res.json({ success: true, migrated, total: sinPartnerId.length, errors });
 }));
 
+/**
+ * POST /api/devoluciones/fix-dates
+ * Temporal: corregir fechas de devoluciones recuperadas
+ */
+router.post('/fix-dates', asyncHandler(async (req, res) => {
+  const { fixes } = req.body; // Array of { picking_name, fecha_recepcion }
+  if (!fixes || !Array.isArray(fixes)) {
+    return res.status(400).json({ error: 'Se requiere un array de fixes' });
+  }
+  const devoluciones = await getDevoluciones();
+  let updated = 0;
+  for (const fix of fixes) {
+    const dev = devoluciones.find(d => d.picking_name === fix.picking_name);
+    if (dev) {
+      dev.fecha_recepcion = fix.fecha_recepcion;
+      updated++;
+    }
+  }
+  await saveDevoluciones(devoluciones);
+  console.log(`🔧 [DEVOLUCIONES] Fechas corregidas: ${updated}/${fixes.length}`);
+  res.json({ success: true, updated, total: fixes.length });
+}));
+
 export default router;
 
 
