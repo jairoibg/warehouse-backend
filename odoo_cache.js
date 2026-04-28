@@ -22,10 +22,24 @@ import xmlrpc from 'xmlrpc';
 // ==================================================================================
 //  CONFIGURACIÓN
 // ==================================================================================
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutos (en ms)
+// ==================================================================================
+//  TTL configurable por env (Bug 2 auditoría 2026-04-28)
+//  ---------------------------------------------------------------
+//  Default histórico: 5 minutos. Bajable a 60-120 s vía env si el operario
+//  necesita ver cambios de stock más rápido. Sin env, comportamiento previo intacto.
+// ==================================================================================
+const CACHE_TTL = parseInt(process.env.ODOO_CACHE_TTL_MS, 10) > 0
+  ? parseInt(process.env.ODOO_CACHE_TTL_MS, 10)
+  : 5 * 60 * 1000; // 5 minutos default
+
+// Logs informativos al cargar el módulo
+if (CACHE_TTL !== 5 * 60 * 1000) {
+  console.log(`[odoo_cache] TTL personalizado: ${(CACHE_TTL / 1000).toFixed(0)}s (env ODOO_CACHE_TTL_MS)`);
+}
+// Acepta ambos nombres (ODOO_DATABASE es el oficial; ODOO_DB se mantiene por compat).
 const ODOO_CONFIG = {
   url: process.env.ODOO_URL,
-  db: process.env.ODOO_DB,
+  db: process.env.ODOO_DATABASE || process.env.ODOO_DB,
   username: process.env.ODOO_USERNAME,
   password: process.env.ODOO_PASSWORD,
 };
