@@ -9,8 +9,14 @@ El sistema ha sido migrado de Anthropic/Claude a OpenAI/ChatGPT.
 Añade la siguiente variable de entorno en tu archivo `.env`:
 
 ```env
-OPENAI_API_KEY=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
+OPENAI_API_KEY=<tu-api-key-de-openai>
 ```
+
+> ⚠️ **IMPORTANTE (actualización auditoría 2026-04-24):** la API key real NO debe escribirse en este archivo ni versionarse en ningún commit. Configúrala únicamente en:
+> - tu `.env` local (ignorado por git), o
+> - las variables de entorno de Railway (panel → Variables).
+>
+> Si la clave anterior quedó expuesta en el historial git, **revócala en https://platform.openai.com/api-keys** y genera una nueva.
 
 ### 2. Verificar configuración
 

@@ -1,16 +1,46 @@
+import 'dotenv/config';
 import xmlrpc from 'xmlrpc';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { explanationEngine } from './explanation_engine.js';
 
-// --- CONFIGURACIÓN ODOO (SEGURA) ---
+// --- CONFIGURACIÓN ODOO ---
+// Las credenciales se leen exclusivamente de variables de entorno.
+// Definir en .env (desarrollo) o en las Variables del servicio (Railway).
+//
+// Validación LAZY: el módulo se puede importar sin envs (no rompe el arranque
+// del server); cualquier llamada efectiva a Odoo verifica las envs y avisa con
+// un error claro si faltan. Esto preserva la posibilidad de arrancar el backend
+// para tareas que no requieren Odoo (debug, migración local, tests).
 const ODOO_CONFIG = {
-  url: 'https://blackdivision.processcontrol.sh',
-  db: 'blackdivision',
-  username: 'j.bernabe@illice.com',
-  password: '98b68f64a4ee2fd5362f16f3b0427a629877f80f',
+  get url()      { return process.env.ODOO_URL; },
+  get db()       { return process.env.ODOO_DATABASE; },
+  get username() { return process.env.ODOO_USERNAME; },
+  get password() { return process.env.ODOO_PASSWORD; },
 };
+
+let _odooEnvWarned = false;
+function ensureOdooEnv() {
+  const missing = [];
+  if (!ODOO_CONFIG.url) missing.push('ODOO_URL');
+  if (!ODOO_CONFIG.db) missing.push('ODOO_DATABASE');
+  if (!ODOO_CONFIG.username) missing.push('ODOO_USERNAME');
+  if (!ODOO_CONFIG.password) missing.push('ODOO_PASSWORD');
+  if (missing.length > 0) {
+    throw new Error(
+      `[sync_odoo] Faltan variables de entorno: ${missing.join(', ')}. ` +
+      `Configúralas en .env (dev) o en Railway → Variables.`
+    );
+  }
+}
+
+if (!ODOO_CONFIG.url || !ODOO_CONFIG.db || !ODOO_CONFIG.username || !ODOO_CONFIG.password) {
+  if (!_odooEnvWarned) {
+    console.warn('⚠️  [sync_odoo] Variables ODOO_* incompletas — la sincronización fallará cuando se invoque.');
+    _odooEnvWarned = true;
+  }
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -859,7 +889,9 @@ export async function syncWithOdoo() {
     console.log(`     🏖️  Playa: ${matchesPlaya} ubicaciones con stock`);
     
     const tempFile = `${LOCATIONS_FILE}.tmp`;
-    await fs.writeFile(tempFile, JSON.stringify(updatedLocations, null, 2));
+    // Sin indentación: reduce ~37 MB → ~22 MB. Acelera I/O y serialización.
+    // El JSON sigue siendo válido y se parsea idénticamente.
+    await fs.writeFile(tempFile, JSON.stringify(updatedLocations));
     await fs.rename(tempFile, LOCATIONS_FILE);
     return updatedLocations;
 
@@ -1016,8 +1048,8 @@ async function quickSyncByFilter(filterName, locationFilter) {
       }
     });
     
-    // Guardar
-    await fs.writeFile(LOCATIONS_FILE, JSON.stringify(locations, null, 2));
+    // Guardar (sin indentación — ahorra ~40% tamaño)
+    await fs.writeFile(LOCATIONS_FILE, JSON.stringify(locations));
     
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`✅ [QUICK-SYNC] ${filterName} completado en ${elapsed}s | Actualizadas: ${updated} | Vaciadas: ${cleared}`);

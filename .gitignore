@@ -1,8 +1,51 @@
 node_modules
 .env
+.env.local
+.env.backup
 
-# Datos de runtime - se modifican en producción, no deben sobrescribirse en deploy
+# Datos de runtime - se modifican en produccion, no deben sobrescribirse en deploy
 # devoluciones.json se genera en runtime desde devoluciones.seed.json (la semilla)
 data/devoluciones.json
 
-# Los archivos seed SÍ deben rastrearse (NO añadir *.seed.json aquí)
+# Journal append-only de devoluciones (Bug 1 auditoria 2026-04-28)
+# Es runtime/auditoria, NO debe versionarse — vive en el volumen Railway
+data/devoluciones_journal.jsonl
+
+# Los archivos seed SI deben rastrearse (NO anadir *.seed.json aqui)
+
+# Backups locales de datos (no deben inflar el repo)
+data/locations_backup_*.json
+data/locations_backup_antes_*.json
+data/locations_old.json
+data/locations_test.json
+data/devoluciones_produccion.json
+data/antiguedades_paquetes.json
+
+# Outputs generados por scripts (auditorias, reportes, analisis)
+exports/
+packing-outputs/
+uploads/
+*.xlsx
+*.csv
+~$*.xlsx
+
+# Copias manuales de codigo - no versionar
+server.js.backup
+server.js.old
+server.js.old.*
+*.backup
+
+# Logs
+server_error.log
+server_output.log
+*.log
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Artefactos Python (pdfplumber en Dockerfile)
+__pycache__/
+*.pyc

@@ -108,8 +108,10 @@ if (filters.min_occupancy_percent !== undefined || filters.max_occupancy_percent
 ### 1. Añadir OPENAI_API_KEY al .env
 
 ```env
-OPENAI_API_KEY=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
+OPENAI_API_KEY=<tu-api-key-de-openai>
 ```
+
+> La clave real **nunca** debe escribirse en archivos versionados. Configúrala solo en tu `.env` local (ignorado por git) o en Railway → Variables.
 
 ### 2. Reiniciar el servidor
 

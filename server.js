@@ -15,6 +15,10 @@ const execPromise = promisify(exec);
 import { fileURLToPath } from "url";
 import { syncWithOdoo, getRealTimeSales } from "./sync_odoo.js";
 import Anthropic from "@anthropic-ai/sdk";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
+import compression from "compression";
+import { errorHandler as globalErrorHandler } from "./src/middleware/errorHandler.js";
 
 // --- IMPORTS: Cerebros Lógicos ---
 import { strategicAnalyzer } from "./strategic_analyzer.js";
@@ -65,6 +69,8 @@ const LOCATIONS_FILE = path.join(PERSISTENT_DATA_DIR, "locations.json");
 const AUDIT_REPORT_FILE = path.join(PERSISTENT_DATA_DIR, "audit_report.json");
 const DEVOLUCIONES_FILE = path.join(PERSISTENT_DATA_DIR, "devoluciones.json"); // ⭐ Persiste en volumen
 const DEVOLUCIONES_SEED_FILE = path.join(LOCAL_DATA_DIR, "devoluciones.seed.json"); // Semilla siempre en código (git)
+// ⭐ JOURNAL append-only: registra cada CREATE/PATCH/DELETE de devoluciones (auditoría completa)
+const DEVOLUCIONES_JOURNAL_FILE = path.join(PERSISTENT_DATA_DIR, "devoluciones_journal.jsonl");
 
 // NO salir si no hay API key - solo advertir
 if (!process.env.ANTHROPIC_API_KEY) {
@@ -121,8 +127,73 @@ function getAnthropicClient() {
 }
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+
+// ==================================================================================
+//  MIDDLEWARE DE SEGURIDAD (Fase 1 auditoría 2026-04-24)
+//  ---------------------------------------------------------------
+//  Todos los controles son BACKWARDS-COMPATIBLE:
+//  - Si CORS_ORIGINS no está definido, CORS sigue abierto (comportamiento previo).
+//  - Rate limit usa umbrales generosos para no afectar tráfico real.
+//  - Helmet deshabilita CSP (podría romper el frontend si se activa con defaults).
+// ==================================================================================
+
+// Detrás de proxy en Railway/Vercel: necesario para que rate-limit lea la IP real.
+app.set('trust proxy', 1);
+
+// Helmet sin CSP (evitamos bloquear recursos del frontend con defaults agresivos).
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
+
+// Compresión gzip (estaba en dependencies pero sin usar).
+app.use(compression());
+
+// CORS: si CORS_ORIGINS está definido, whitelist; si no, comportamiento original.
+const CORS_ORIGINS = (process.env.CORS_ORIGINS ?? '').split(',').map(s => s.trim()).filter(Boolean);
+if (CORS_ORIGINS.length > 0) {
+  console.log(`🔒 [CORS] Whitelist activo: ${CORS_ORIGINS.join(', ')}`);
+  app.use(cors({
+    origin: (origin, cb) => {
+      // Requests sin Origin (curl, herramientas internas, WS upgrade) pasan.
+      if (!origin) return cb(null, true);
+      if (CORS_ORIGINS.includes(origin)) return cb(null, true);
+      cb(new Error(`CORS: origin ${origin} no permitido`));
+    },
+    credentials: true,
+  }));
+} else {
+  console.warn('⚠️  [CORS] CORS_ORIGINS no definido — CORS abierto (modo legacy). Define CORS_ORIGINS en .env para restringir.');
+  app.use(cors());
+}
+
+app.use(express.json({ limit: '10mb' }));
+
+// Rate limiting — umbrales generosos, solo bloquea abuso evidente.
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 minutos
+  max: 1000,                  // 1000 requests por IP por ventana
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiadas peticiones, espera unos minutos.' },
+  skip: (req) => req.path === '/api/devoluciones/debug', // diagnóstico sin límite
+});
+app.use('/api/', apiLimiter);
+
+// Rate limiting más estricto para endpoints costosos (IA, upload).
+const expensiveLimiter = rateLimit({
+  windowMs: 60 * 1000,  // 1 minuto
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiadas peticiones a endpoint costoso, espera un minuto.' },
+});
+app.use('/api/ai/', expensiveLimiter);
+app.use('/api/strategic-chat', expensiveLimiter);
+app.use('/api/strategic-analysis', expensiveLimiter);
+app.use('/api/packing/analyze', expensiveLimiter);
+
 app.use("/downloads", express.static(EXPORT_DIR));
 
 let movements = []; 
@@ -194,9 +265,73 @@ async function getDevoluciones() {
   }
 }
 
-// Guardar devoluciones
-async function saveDevoluciones(devoluciones) {
+// Guardar devoluciones + auto-backup al seed
+async function saveDevoluciones(devoluciones, { skipBackup = false } = {}) {
   await fs.writeFile(DEVOLUCIONES_FILE, JSON.stringify(devoluciones, null, 2), 'utf8');
+  if (!skipBackup) {
+    await backupToSeed(devoluciones);
+  }
+}
+
+// ⭐ JOURNAL APPEND-ONLY: registra cada cambio de devolución como evento inmutable.
+// Diseño:
+// - Cada acción (CREATE/PATCH/DELETE/RMA) escribe 1 línea JSON al final del archivo.
+// - Si la escritura falla (disco lleno, permisos), NO bloquea la operación de negocio:
+//   se loguea el error y la operación principal sigue. Esto preserva la regla de oro
+//   "no romper lo que funciona".
+// - El journal vive en PERSISTENT_DATA_DIR (volumen Railway), sobrevive a deploys.
+// - Formato JSONL (1 evento por línea): facilita streaming + tail + grep.
+async function journalDevolucionEvent({ action, id, before = null, after = null, changes = null, actor = 'api', meta = null }) {
+  try {
+    const event = {
+      ts: new Date().toISOString(),
+      action,
+      id: typeof id === 'number' ? id : (id ? Number(id) : null),
+      actor,
+      ...(before !== null ? { before } : {}),
+      ...(after !== null ? { after } : {}),
+      ...(changes ? { changes } : {}),
+      ...(meta ? { meta } : {}),
+    };
+    await fs.appendFile(DEVOLUCIONES_JOURNAL_FILE, JSON.stringify(event) + '\n', 'utf8');
+  } catch (e) {
+    // No fallar la operación si el journal falla — solo log y seguir.
+    console.warn(`⚠️  [JOURNAL] No se pudo escribir evento ${action} id=${id}: ${e.message}`);
+  }
+}
+
+// ⭐ Helper: calcula el diff entre dos objetos devolución (campo a campo).
+function computeDevolucionChanges(before, after) {
+  const changes = {};
+  if (!before || !after) return changes;
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+  for (const k of keys) {
+    const v1 = before[k];
+    const v2 = after[k];
+    // Ignorar metadatos volátiles que no son cambios "de negocio"
+    if (k === 'updated_at' || k === 'rma_cache') continue;
+    if (JSON.stringify(v1) !== JSON.stringify(v2)) {
+      changes[k] = { from: v1 === undefined ? null : v1, to: v2 === undefined ? null : v2 };
+    }
+  }
+  return changes;
+}
+
+// ⭐ AUTO-BACKUP: Actualizar seed en cada modificación para que nunca se pierdan datos
+async function backupToSeed(devoluciones) {
+  try {
+    // Limpiar campos temporales/pesados antes de guardar en seed
+    const cleanDevs = devoluciones.map(d => {
+      const clean = { ...d };
+      delete clean.rma_cache;
+      delete clean.updated_at;
+      return clean;
+    });
+    await fs.writeFile(DEVOLUCIONES_SEED_FILE, JSON.stringify(cleanDevs, null, 2), 'utf8');
+    console.log(`💾 [BACKUP] Seed actualizado: ${cleanDevs.length} devoluciones`);
+  } catch (e) {
+    console.error(`⚠️ [BACKUP] Error actualizando seed: ${e.message}`);
+  }
 }
 
 // ==================================================================================
@@ -215,8 +350,27 @@ async function ensureDevolucionesFromSeed() {
   if (runtime.length === 0 && seed.length > 0) {
     // Deploy fresco sin datos runtime → arrancar desde la semilla
     console.log(`🌱 [STARTUP] Deploy fresco: cargando ${seed.length} devoluciones desde seed`);
-    await saveDevoluciones(seed);
+    await saveDevoluciones(seed, { skipBackup: true });
     return seed;
+  }
+
+  if (seed.length > runtime.length) {
+    // ⭐ El seed tiene MÁS datos que el runtime → el volumen se corrompió/reseteó
+    // Usar seed como base y añadir cualquier entrada del runtime que no esté en seed
+    console.log(`🛡️ [STARTUP] Seed (${seed.length}) > runtime (${runtime.length}): restaurando desde seed`);
+    const seedPickingIds = new Set(seed.map(d => d.picking_id).filter(Boolean));
+    const seedPickingNames = new Set(seed.map(d => d.picking_name).filter(Boolean));
+    const newFromRuntime = runtime.filter(d => {
+      if (d.picking_id && seedPickingIds.has(d.picking_id)) return false;
+      if (d.picking_name && seedPickingNames.has(d.picking_name)) return false;
+      return true;
+    });
+    const merged = [...seed, ...newFromRuntime];
+    if (newFromRuntime.length > 0) {
+      console.log(`🔀 [STARTUP] Merge: seed (${seed.length}) + ${newFromRuntime.length} extras del runtime = ${merged.length}`);
+    }
+    await saveDevoluciones(merged, { skipBackup: true });
+    return merged;
   }
 
   if (runtime.length > 0 && seed.length > 0) {
@@ -231,7 +385,7 @@ async function ensureDevolucionesFromSeed() {
     if (newFromSeed.length > 0) {
       console.log(`🔀 [STARTUP] Merge: ${newFromSeed.length} devoluciones de seed añadidas a ${runtime.length} runtime`);
       const merged = [...runtime, ...newFromSeed];
-      await saveDevoluciones(merged);
+      await saveDevoluciones(merged, { skipBackup: true });
       return merged;
     }
     console.log(`✅ [STARTUP] ${runtime.length} devoluciones runtime (seed ya incluida)`);
@@ -594,10 +748,22 @@ async function buscarEnOdoo(query, tipo = 'todos') {
 const packingStorage = multer.diskStorage({
   destination: './uploads/',
   filename: (req, file, cb) => {
-    cb(null, `${Date.now()}-${file.originalname}`);
+    // Sanitizar filename para evitar path traversal en el disco (por si llega "../..")
+    const safeName = path.basename(file.originalname).replace(/[^\w.\-áéíóúÁÉÍÓÚñÑ ]/g, '_');
+    cb(null, `${Date.now()}-${safeName}`);
   }
 });
-const packingUpload = multer({ storage: packingStorage, limits: { fileSize: 50 * 1024 * 1024 } });
+// Aceptamos solo PDFs — el pipeline downstream (Python + pdfplumber) no procesa otra cosa.
+const packingUpload = multer({
+  storage: packingStorage,
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const isPdfMime = file.mimetype === 'application/pdf';
+    const isPdfExt = /\.pdf$/i.test(file.originalname);
+    if (isPdfMime || isPdfExt) return cb(null, true);
+    cb(new Error(`Solo se permiten archivos PDF. Recibido: ${file.mimetype} (${file.originalname})`));
+  },
+});
 
 // Crear carpetas para packing
 if (!fsSync.existsSync('./uploads')) fsSync.mkdirSync('./uploads', { recursive: true });
@@ -686,6 +852,14 @@ app.post("/api/devoluciones", async (req, res) => {
 
     devoluciones.push(nuevaDevolucion);
     await saveDevoluciones(devoluciones);
+
+    // ⭐ Journal: registrar evento CREATE (snapshot completo)
+    await journalDevolucionEvent({
+      action: 'CREATE',
+      id: nuevaDevolucion.id,
+      after: nuevaDevolucion,
+      actor: recibido_por || 'api',
+    });
 
     console.log(`✅ [DEVOLUCIONES] Registrada: ${picking_name} por ${recibido_por}`);
 
@@ -908,7 +1082,7 @@ app.delete("/api/devoluciones/:id", async (req, res) => {
   try {
     const { id } = req.params;
     let devoluciones = await getDevoluciones();
-    
+
     const index = devoluciones.findIndex(d => d.id === parseInt(id));
     if (index === -1) {
       return res.status(404).json({ error: 'Devolución no encontrada' });
@@ -916,6 +1090,15 @@ app.delete("/api/devoluciones/:id", async (req, res) => {
 
     const eliminada = devoluciones.splice(index, 1)[0];
     await saveDevoluciones(devoluciones);
+
+    // ⭐ Journal: snapshot completo del registro eliminado (permite restore)
+    await journalDevolucionEvent({
+      action: 'DELETE',
+      id: eliminada.id,
+      before: eliminada,
+      actor: req.body?.actor || 'api',
+      meta: { reason: req.body?.reason || null },
+    });
 
     console.log(`🗑️ [DEVOLUCIONES] Eliminada: ${eliminada.picking_name}`);
 
@@ -938,6 +1121,9 @@ app.patch("/api/devoluciones/:id", async (req, res) => {
       return res.status(404).json({ error: 'Devolución no encontrada' });
     }
 
+    // ⭐ Capturar snapshot ANTES del cambio para el journal
+    const beforeSnapshot = JSON.parse(JSON.stringify(devoluciones[index]));
+
     // Campos editables (no permitir cambiar id, picking_id, rma_cache)
     const camposEditables = ['picking_name', 'partner_name', 'company', 'tracking_retorno', 'recibido_por', 'notas', 'fecha_recepcion'];
     const cambios = {};
@@ -954,6 +1140,17 @@ app.patch("/api/devoluciones/:id", async (req, res) => {
 
     devoluciones[index].updated_at = new Date().toISOString();
     await saveDevoluciones(devoluciones);
+
+    // ⭐ Journal: registrar diff campo a campo
+    const afterSnapshot = devoluciones[index];
+    await journalDevolucionEvent({
+      action: 'PATCH',
+      id: afterSnapshot.id,
+      before: beforeSnapshot,
+      after: afterSnapshot,
+      changes: computeDevolucionChanges(beforeSnapshot, afterSnapshot),
+      actor: req.body?.actor || 'api',
+    });
 
     console.log(`✏️ [DEVOLUCIONES] Editada: ${devoluciones[index].picking_name} → ${JSON.stringify(cambios)}`);
 
@@ -1076,9 +1273,142 @@ app.patch("/api/devoluciones/:id/rma", async (req, res) => {
     if (idx === -1) return res.status(404).json({ error: 'Devolución no encontrada' });
     devoluciones[idx].rma_cache = { tiene_rma, tickets, cached_at: new Date().toISOString(), search_version: 2 };
     await saveDevoluciones(devoluciones);
+    // Nota: NO se journal-ea el RMA cache (es metadata volátil, ya lo excluye computeDevolucionChanges)
     res.json({ success: true });
   } catch (error) {
     console.error('Error guardando RMA cache:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================================================================================
+//  ⭐ JOURNAL DE DEVOLUCIONES — endpoints de consulta y restauración (Bug 1)
+// ==================================================================================
+
+// Helper: leer todos los eventos del journal (devuelve array)
+async function readDevolucionesJournal() {
+  try {
+    const raw = await fs.readFile(DEVOLUCIONES_JOURNAL_FILE, 'utf8');
+    return raw
+      .split('\n')
+      .filter(line => line.trim())
+      .map(line => {
+        try { return JSON.parse(line); } catch (e) { return null; }
+      })
+      .filter(Boolean);
+  } catch (e) {
+    if (e.code === 'ENOENT') return []; // primer arranque, journal vacío
+    throw e;
+  }
+}
+
+// 8. Listar journal completo (con filtros opcionales)
+//    GET /api/devoluciones/journal?id=48&since=2026-04-01&action=PATCH&limit=200
+app.get("/api/devoluciones/journal", async (req, res) => {
+  try {
+    const { id, since, until, action, actor, limit = 500 } = req.query;
+    let events = await readDevolucionesJournal();
+
+    if (id) events = events.filter(e => String(e.id) === String(id));
+    if (action) events = events.filter(e => e.action === String(action).toUpperCase());
+    if (actor) events = events.filter(e => e.actor === actor);
+    if (since) events = events.filter(e => e.ts >= since);
+    if (until) events = events.filter(e => e.ts <= until);
+
+    // Más recientes primero
+    events.sort((a, b) => (a.ts < b.ts ? 1 : -1));
+    events = events.slice(0, parseInt(limit, 10));
+
+    res.json({ total: events.length, events });
+  } catch (error) {
+    console.error('❌ Error leyendo journal:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 9. Histórico de UNA devolución concreta (todos los eventos en orden cronológico)
+app.get("/api/devoluciones/:id/history", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const events = await readDevolucionesJournal();
+    const filtered = events
+      .filter(e => String(e.id) === String(id))
+      .sort((a, b) => (a.ts > b.ts ? 1 : -1)); // cronológico ascendente
+
+    res.json({
+      id: Number(id) || id,
+      total: filtered.length,
+      events: filtered,
+    });
+  } catch (error) {
+    console.error('❌ Error en history:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 10. Restaurar una devolución eliminada usando el snapshot del journal
+app.post("/api/devoluciones/:id/restore", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const events = await readDevolucionesJournal();
+
+    // Buscar el último DELETE de esta id
+    const deleteEvent = [...events]
+      .reverse()
+      .find(e => String(e.id) === String(id) && e.action === 'DELETE' && e.before);
+
+    if (!deleteEvent) {
+      return res.status(404).json({ error: `No se encontró un evento DELETE para id=${id} en el journal` });
+    }
+
+    // Verificar que no exista ya
+    let devoluciones = await getDevoluciones();
+    if (devoluciones.find(d => d.id === deleteEvent.before.id)) {
+      return res.status(409).json({ error: 'La devolución ya existe en el estado actual; no se restaura' });
+    }
+
+    // Reinsertar
+    const restored = { ...deleteEvent.before, restored_at: new Date().toISOString() };
+    devoluciones.push(restored);
+    await saveDevoluciones(devoluciones);
+
+    // Journal: registrar el RESTORE como evento
+    await journalDevolucionEvent({
+      action: 'RESTORE',
+      id: restored.id,
+      after: restored,
+      actor: req.body?.actor || 'api',
+      meta: { from_event_ts: deleteEvent.ts },
+    });
+
+    console.log(`♻️  [DEVOLUCIONES] Restaurada: ${restored.picking_name} (id=${restored.id})`);
+    res.json({ success: true, devolucion: restored });
+  } catch (error) {
+    console.error('❌ Error en restore:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 11. Stats del journal (cuántos eventos por tipo / día)
+app.get("/api/devoluciones/journal/stats", async (req, res) => {
+  try {
+    const events = await readDevolucionesJournal();
+    const byAction = {};
+    const byDay = {};
+    for (const e of events) {
+      byAction[e.action] = (byAction[e.action] || 0) + 1;
+      const day = (e.ts || '').slice(0, 10);
+      if (day) byDay[day] = (byDay[day] || 0) + 1;
+    }
+    res.json({
+      total: events.length,
+      first: events[0]?.ts || null,
+      last: events[events.length - 1]?.ts || null,
+      by_action: byAction,
+      by_day: byDay,
+    });
+  } catch (error) {
+    console.error('❌ Error en journal stats:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -2563,7 +2893,93 @@ function broadcastUpdate(data) {
   wss.clients.forEach(c => { if (c.readyState === 1) c.send(JSON.stringify({ type: "UPDATE_LOCATIONS", payload: data })); });
 }
 
-wss.on("connection", () => console.log("WS conectado"));
+// ⭐ Broadcast diferencial: envía solo las ubicaciones que han cambiado.
+// Se llama además del broadcast completo para que el frontend pueda reaccionar
+// rápido sin esperar a recibir el payload de 22-37 MB. (Bug 2.B)
+let lastLocationsSnapshot = null; // referencia anterior para diff
+function broadcastDelta(currentLocations) {
+  if (!Array.isArray(currentLocations) || currentLocations.length === 0) return;
+
+  // Primera ejecución: no hay snapshot previo → no enviamos delta
+  if (!lastLocationsSnapshot) {
+    lastLocationsSnapshot = new Map(currentLocations.map(l => [l.id, JSON.stringify(l)]));
+    return;
+  }
+
+  const changed = [];
+  const newSnapshot = new Map();
+  for (const loc of currentLocations) {
+    const serialized = JSON.stringify(loc);
+    newSnapshot.set(loc.id, serialized);
+    const prev = lastLocationsSnapshot.get(loc.id);
+    if (prev !== serialized) changed.push(loc);
+  }
+  lastLocationsSnapshot = newSnapshot;
+
+  if (changed.length === 0) return;
+
+  // Cap defensivo: si han cambiado >500 ubicaciones, ya está el broadcast full,
+  // no spammear con un delta enorme.
+  if (changed.length > 500) {
+    console.log(`📡 [WS] Delta omitido (${changed.length} cambios > 500, usar full broadcast)`);
+    return;
+  }
+
+  // Envía un mensaje LOCATION_UPDATE por cada cambio. Formato esperado por el hook
+  // useWarehouseData del frontend: { type, location, ts }.
+  const ts = Date.now();
+  wss.clients.forEach(c => {
+    if (c.readyState !== 1) return;
+    for (const loc of changed) {
+      try {
+        c.send(JSON.stringify({ type: "LOCATION_UPDATE", location: loc, ts }));
+      } catch (e) { /* ignore single-client failure */ }
+    }
+  });
+  if (changed.length > 0) {
+    console.log(`📡 [WS] LOCATION_UPDATE delta: ${changed.length} ubicaciones`);
+  }
+}
+
+// ⭐ Heartbeat WS: detecta clientes muertos y permite reconexión rápida.
+// Cada 25s, ping a todos. Si un cliente no respondió al ping anterior, terminate().
+const HEARTBEAT_INTERVAL_MS = 25_000;
+function noop() {}
+function heartbeatPong() { this.isAlive = true; }
+
+wss.on("connection", (ws) => {
+  ws.isAlive = true;
+  ws.on('pong', heartbeatPong);
+  // Soporte de "ping" lógico desde clientes que no usan ping/pong nativo
+  ws.on('message', (msg) => {
+    try {
+      const txt = msg.toString();
+      if (txt === 'ping') {
+        ws.isAlive = true;
+        if (ws.readyState === 1) ws.send('pong');
+      } else if (txt.startsWith('{')) {
+        const obj = JSON.parse(txt);
+        if (obj && obj.type === 'PING') {
+          ws.isAlive = true;
+          if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'PONG', ts: Date.now() }));
+        }
+      }
+    } catch (e) { /* mensaje no parseable, ignorar */ }
+  });
+  console.log("WS conectado");
+});
+
+setInterval(() => {
+  wss.clients.forEach(ws => {
+    if (ws.isAlive === false) {
+      // No respondió al ping anterior → cliente muerto, cerrar.
+      try { ws.terminate(); } catch (e) {}
+      return;
+    }
+    ws.isAlive = false;
+    try { ws.ping(noop); } catch (e) {}
+  });
+}, HEARTBEAT_INTERVAL_MS);
 
 const POLLING_INTERVAL_MS = 5000;
 let lastSyncTimestamp = new Date();
@@ -2576,7 +2992,11 @@ setInterval(async () => {
     const updatedData = await syncWithOdoo();
     if (updatedData) {
       lastSyncTimestamp = new Date();
+      // 1) Broadcast completo (legacy) — clientes existentes lo procesan igual que antes
       broadcastUpdate(updatedData);
+      // 2) Broadcast diferencial (nuevo) — clientes que sepan reaccionar a LOCATION_UPDATE
+      //    actualizarán al instante sin esperar al payload completo
+      broadcastDelta(updatedData);
     }
   } catch (e) {
     console.error(e.message);
@@ -3321,11 +3741,37 @@ app.post("/api/packing/analyze", packingUpload.single('file'), async (req, res) 
   }
 });
 
-// Descargar Excel
+// Descargar Excel — con protección contra path traversal (Fase 1 auditoría 2026-04-24)
 app.get("/api/packing/download/:filename", (req, res) => {
-  const filePath = path.join(__dirname, 'packing-outputs', req.params.filename);
+  const PACKING_DIR = path.resolve(__dirname, 'packing-outputs');
+  // basename() descarta cualquier "../" antes de resolver
+  const safeFilename = path.basename(req.params.filename);
+  const filePath = path.resolve(PACKING_DIR, safeFilename);
+  // Defensa en profundidad: verificar que el path resuelto sigue dentro de PACKING_DIR
+  if (!filePath.startsWith(PACKING_DIR + path.sep) && filePath !== PACKING_DIR) {
+    return res.status(403).json({ error: 'Acceso denegado' });
+  }
+  if (!fsSync.existsSync(filePath)) {
+    return res.status(404).json({ error: 'Archivo no encontrado' });
+  }
   res.download(filePath);
 });
+
+// ==================================================================================
+//  ERROR HANDLER GLOBAL (Fase 3.A.3 auditoría 2026-04-28)
+//  ---------------------------------------------------------------
+//  Captura cualquier error no manejado por las rutas (incluyendo el error de
+//  CORS bloqueado, que antes devolvía HTML stack trace) y devuelve JSON
+//  estructurado: { success:false, error: { code, message } }.
+//
+//  Comportamiento previo: errores → HTML de express con stack trace en <pre>.
+//  Nuevo: errores → JSON con statusCode adecuado.
+//
+//  Compatibilidad: solo se activa cuando un error LLEGA al middleware (las
+//  rutas que ya devuelven res.json siguen funcionando idénticamente).
+// ==================================================================================
+app.use(globalErrorHandler);
+
 server.listen(PORT, '0.0.0.0', () => {
   console.log(` 🚀  CEREBRO CLAUDE + CFO IA + DEVOLUCIONES B2B ACTIVO en ${PORT}`);
 
