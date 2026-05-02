@@ -4,13 +4,9 @@
 
 import express from 'express';
 import fs from 'fs/promises';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { explanationEngine } from '../../explanation_engine.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { LOCATIONS_FILE } from '../config/dataPaths.js';
 
 const router = express.Router();
 
@@ -23,7 +19,7 @@ router.get('/abc/:productCode', asyncHandler(async (req, res) => {
   
   console.log(`🔍 Solicitando explicación ABC para: ${productCode}`);
   
-  const dataPath = path.join(__dirname, '../../data', 'locations.json');
+  const dataPath = LOCATIONS_FILE;
   const raw = await fs.readFile(dataPath, 'utf8');
   const locations = JSON.parse(raw);
   
@@ -81,7 +77,7 @@ router.get('/location/:locationId', asyncHandler(async (req, res) => {
   
   console.log(`🔍 Explicando ubicación: ${locationId}`);
   
-  const dataPath = path.join(__dirname, '../../data', 'locations.json');
+  const dataPath = LOCATIONS_FILE;
   const raw = await fs.readFile(dataPath, 'utf8');
   const locations = JSON.parse(raw);
   

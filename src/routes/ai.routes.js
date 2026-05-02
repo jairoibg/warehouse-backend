@@ -4,17 +4,13 @@
 
 import express from 'express';
 import fs from 'fs/promises';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { getOpenAIClient } from '../services/aiService.js';
 import { getWarehouseContext, queryWarehouseData, queryDetailedData } from '../services/warehouseService.js';
 import { analyzeSalesData } from '../services/analyticsService.js';
 import { strategicAnalyzer } from '../../strategic_analyzer.js';
 import { getConfig } from '../config/env.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { LOCATIONS_FILE } from '../config/dataPaths.js';
 
 const router = express.Router();
 
@@ -85,7 +81,7 @@ router.post('/report', asyncHandler(async (req, res) => {
   const { query, history } = req.body;
   console.log(` 🤖  [AGENTE GPT] Procesando: "${query}"`);
   
-  const dataPath = path.join(__dirname, '../../data', 'locations.json');
+  const dataPath = LOCATIONS_FILE;
   const raw = await fs.readFile(dataPath, 'utf8');
   const allLocations = JSON.parse(raw);
 
@@ -319,7 +315,7 @@ ${DATA_DICTIONARY}
 router.post('/strategic-analysis', asyncHandler(async (req, res) => {
   console.log('🧠 [STRATEGY] Generando análisis estratégico completo...');
   
-  const dataPath = path.join(__dirname, '../../data', 'locations.json');
+  const dataPath = LOCATIONS_FILE;
   const raw = await fs.readFile(dataPath, 'utf8');
   const locations = JSON.parse(raw);
   
@@ -349,7 +345,7 @@ router.post('/strategic-chat', asyncHandler(async (req, res) => {
 
   console.log('🧠 [CHAT GPT] Pregunta:', question);
 
-  const dataPath = path.join(__dirname, '../../data', 'locations.json');
+  const dataPath = LOCATIONS_FILE;
   const raw = await fs.readFile(dataPath, 'utf8');
   const locations = JSON.parse(raw);
   

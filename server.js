@@ -1868,7 +1868,7 @@ app.post("/api/strategic-analysis", async (req, res) => {
     console.log('🧠 [STRATEGY] Generando análisis estratégico completo...');
     
     // Cargar datos
-    const dataPath = path.join(__dirname, "data", "locations.json");
+    const dataPath = LOCATIONS_FILE;
     const raw = await fs.readFile(dataPath, "utf8");
     const locations = JSON.parse(raw);
     
@@ -1897,7 +1897,7 @@ app.post("/api/strategic-chat", async (req, res) => {
 
     console.log('🧠 [CHAT CLAUDE] Pregunta:', question);
 
-    const dataPath = path.join(__dirname, "data", "locations.json");
+    const dataPath = LOCATIONS_FILE;
     const raw = await fs.readFile(dataPath, "utf8");
     const locations = JSON.parse(raw);
     
@@ -1985,7 +1985,7 @@ app.get("/api/explain/abc/:productCode", async (req, res) => {
     
     console.log(`🔍 Solicitando explicación ABC para: ${productCode}`);
     
-    const dataPath = path.join(__dirname, "data", "locations.json");
+    const dataPath = LOCATIONS_FILE;
     const raw = await fs.readFile(dataPath, "utf8");
     const locations = JSON.parse(raw);
     
@@ -2046,7 +2046,7 @@ app.get("/api/explain/location/:locationId", async (req, res) => {
     
     console.log(`🔍 Explicando ubicación: ${locationId}`);
     
-    const dataPath = path.join(__dirname, "data", "locations.json");
+    const dataPath = LOCATIONS_FILE;
     const raw = await fs.readFile(dataPath, "utf8");
     const locations = JSON.parse(raw);
     
@@ -2259,7 +2259,7 @@ app.post("/api/ai/report", async (req, res) => {
     console.log(` 🤖  [AGENTE CLAUDE] Procesando: "${query}"`);
     
     // Cargamos datos para herramientas de búsqueda masiva
-    const dataPath = path.join(__dirname, "data", "locations.json");
+    const dataPath = LOCATIONS_FILE;
     const raw = await fs.readFile(dataPath, "utf8");
     const allLocations = JSON.parse(raw);
 
@@ -2750,7 +2750,7 @@ app.get("/api/analytics/weights-2025", async (req, res) => {
 //  9. SERVICIOS BASE Y WEBSOCKET (ORIGINAL)
 // ==================================================================================
 app.get("/api/locations", async (req, res) => {
-  const dataPath = path.join(__dirname, "data", "locations.json");
+  const dataPath = LOCATIONS_FILE;
   const raw = await fs.readFile(dataPath, "utf8");
   res.json(JSON.parse(raw));
 });

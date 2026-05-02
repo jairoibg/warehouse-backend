@@ -4,14 +4,10 @@
 
 import express from 'express';
 import fs from 'fs/promises';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { getWarehouseContext } from '../services/warehouseService.js';
 import { odooExecute, odooAuth } from '../services/odooService.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { LOCATIONS_FILE } from '../config/dataPaths.js';
 
 const router = express.Router();
 
@@ -23,12 +19,12 @@ let movements = [];
  * Obtiene todas las ubicaciones
  */
 router.get('/', asyncHandler(async (req, res) => {
-  const dataPath = path.join(__dirname, '../../data', 'locations.json');
-  const raw = await fs.readFile(dataPath, 'utf8');
+  const raw = await fs.readFile(LOCATIONS_FILE, 'utf8');
   const locations = JSON.parse(raw);
-  
-  // Headers de caché para mejorar velocidad de carga (5 minutos)
-  res.set('Cache-Control', 'public, max-age=300');
+
+  // No cachear: el dato cambia con cada sync con Odoo (cada 5s).
+  // Cachear 5 min causaba que el operario viera stock obsoleto.
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
   res.json(locations);
 }));
 

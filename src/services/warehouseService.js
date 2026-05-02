@@ -4,13 +4,8 @@
  */
 
 import fs from 'fs/promises';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { generateCSV } from '../utils/csvGenerator.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const LOCATIONS_FILE = path.join(__dirname, '../../data', 'locations.json');
+import { LOCATIONS_FILE } from '../config/dataPaths.js';
 
 /**
  * Carga el contexto completo del almacén
