@@ -268,7 +268,15 @@ function fetchBatchStock(uid, offset, limit) {
     const startTime = Date.now();
     const models = xmlrpc.createSecureClient({ url: `${ODOO_CONFIG.url}/xmlrpc/2/object` });
     const fields = ['location_id', 'package_id', 'product_id', 'quantity', 'reserved_quantity', 'in_date', 'product_set_id'];
-    const domain = [['location_id.usage', '=', 'internal']];
+    // ⭐ Fix bug "paquetes fantasma" (2026-04-28):
+    //   Odoo deja quants residuales con quantity=0 cuando se mueve/vende stock.
+    //   Antes traíamos esos y aparecían como paquetes en el gemelo aunque ya
+    //   no estaban "a mano" en Odoo. Filtrando server-side por quantity>0
+    //   ahorramos ancho de banda y eliminamos los fantasmas de raíz.
+    const domain = [
+      ['location_id.usage', '=', 'internal'],
+      ['quantity', '>', 0],
+    ];
     models.methodCall('execute_kw', [
       ODOO_CONFIG.db, uid, ODOO_CONFIG.password,
       'stock.quant', 'search_read', [domain],
@@ -508,7 +516,10 @@ function fetchSalesVelocity(uid, productIds) {
 async function fetchAllStock(uid) {
   let allQuants = [];
   let offset = 0;
-  const BATCH_SIZE = 5000;
+  // ⭐ BATCH_SIZE 5000 → 20000 (auditoría 2026-04-28). Reduce nº de RPC calls
+  //   de ~22 a ~6 para 106k quants. Si Odoo timeout en lotes grandes, bajar
+  //   a 10000. Ahorra ~60s por ciclo de sync.
+  const BATCH_SIZE = 20000;
   let keepFetching = true;
   console.log(" ⏳  Iniciando descarga de stock (B2C + B2B)...");
   while (keepFetching) {
@@ -720,12 +731,16 @@ export async function syncWithOdoo() {
 
     // --- AGRUPAR STOCK POR CLAVE ÚNICA (tipo:marca:locId) ---
     const contentByKey = {};
+    let skippedZeroQty = 0;
     stockData.forEach(quant => {
       if (!quant.location_id) return;
-      
+      // ⭐ Cinturón: aunque el dominio Odoo ya filtra quantity>0, descartamos
+      //   defensivamente cualquier quant con qty<=0 (paquetes fantasma).
+      if (!quant.quantity || quant.quantity <= 0) { skippedZeroQty++; return; }
+
       const fullName = quant.location_id[1];
       const key = buildLocationKey(fullName);
-      
+
       if (!contentByKey[key]) contentByKey[key] = [];
       
       const pid = quant.product_id[0];
@@ -887,6 +902,9 @@ export async function syncWithOdoo() {
     console.log(`     📦 B2C: ${matchesB2C} ubicaciones con stock`);
     console.log(`     📦 B2B: ${matchesB2B} ubicaciones con stock`);
     console.log(`     🏖️  Playa: ${matchesPlaya} ubicaciones con stock`);
+    if (skippedZeroQty > 0) {
+      console.log(`     🧹 Quants con quantity<=0 ignorados: ${skippedZeroQty} (paquetes fantasma)`);
+    }
     
     const tempFile = `${LOCATIONS_FILE}.tmp`;
     // Sin indentación: reduce ~37 MB → ~22 MB. Acelera I/O y serialización.
