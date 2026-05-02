@@ -1352,23 +1352,39 @@ app.post("/api/devoluciones/:id/restore", async (req, res) => {
     const { id } = req.params;
     const events = await readDevolucionesJournal();
 
-    // Buscar el último DELETE de esta id
-    const deleteEvent = [...events]
+    // Buscar el último DELETE de esta id (caso original).
+    let sourceEvent = [...events]
       .reverse()
       .find(e => String(e.id) === String(id) && e.action === 'DELETE' && e.before);
+    let sourceSnapshot = sourceEvent?.before;
+    let restoredFromKind = 'DELETE';
 
-    if (!deleteEvent) {
-      return res.status(404).json({ error: `No se encontró un evento DELETE para id=${id} en el journal` });
+    // ⭐ Fallback (auditoría 2026-05-03): si no hay DELETE pero SÍ hay CREATE,
+    // restauramos desde el snapshot del CREATE. Esto cubre el caso de registros
+    // que existieron en el runtime, se perdieron por un reset de volumen, y
+    // solo quedaron en el journal sin un evento DELETE explícito.
+    if (!sourceEvent) {
+      sourceEvent = [...events]
+        .reverse()
+        .find(e => String(e.id) === String(id) && e.action === 'CREATE' && e.after);
+      if (sourceEvent) {
+        sourceSnapshot = sourceEvent.after;
+        restoredFromKind = 'CREATE';
+      }
+    }
+
+    if (!sourceSnapshot) {
+      return res.status(404).json({ error: `No se encontró ni DELETE ni CREATE para id=${id} en el journal` });
     }
 
     // Verificar que no exista ya
     let devoluciones = await getDevoluciones();
-    if (devoluciones.find(d => d.id === deleteEvent.before.id)) {
+    if (devoluciones.find(d => d.id === sourceSnapshot.id)) {
       return res.status(409).json({ error: 'La devolución ya existe en el estado actual; no se restaura' });
     }
 
-    // Reinsertar
-    const restored = { ...deleteEvent.before, restored_at: new Date().toISOString() };
+    // Reinsertar preservando el id original
+    const restored = { ...sourceSnapshot, restored_at: new Date().toISOString() };
     devoluciones.push(restored);
     await saveDevoluciones(devoluciones);
 
@@ -1378,13 +1394,182 @@ app.post("/api/devoluciones/:id/restore", async (req, res) => {
       id: restored.id,
       after: restored,
       actor: req.body?.actor || 'api',
-      meta: { from_event_ts: deleteEvent.ts },
+      meta: { from_event_ts: sourceEvent.ts, from_event_kind: restoredFromKind },
     });
 
-    console.log(`♻️  [DEVOLUCIONES] Restaurada: ${restored.picking_name} (id=${restored.id})`);
-    res.json({ success: true, devolucion: restored });
+    console.log(`♻️  [DEVOLUCIONES] Restaurada: ${restored.picking_name} (id=${restored.id}) desde ${restoredFromKind}`);
+    res.json({ success: true, devolucion: restored, restoredFromKind });
   } catch (error) {
     console.error('❌ Error en restore:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================================================================================
+//  ⭐ DISCOVER (auditoría 2026-05-03): listar pickings de salida B2B "done" en
+//  un rango de fechas. Útil para reconstruir devoluciones perdidas: el operario
+//  identifica cuáles fueron devueltos en realidad.
+// ==================================================================================
+app.get("/api/devoluciones/discover", async (req, res) => {
+  try {
+    const { from, to, company, limit = 500 } = req.query;
+    if (!from || !to) {
+      return res.status(400).json({ error: 'from y to (YYYY-MM-DD) son obligatorios' });
+    }
+    const fromIso = from.length === 10 ? `${from} 00:00:00` : from;
+    const toIso = to.length === 10 ? `${to} 23:59:59` : to;
+
+    const common = xmlrpc.createSecureClient({ url: `${process.env.ODOO_URL}/xmlrpc/2/common` });
+    const models = xmlrpc.createSecureClient({ url: `${process.env.ODOO_URL}/xmlrpc/2/object` });
+    const uid = await new Promise((resolve, reject) => {
+      common.methodCall('authenticate', [
+        process.env.ODOO_DATABASE, process.env.ODOO_USERNAME, process.env.ODOO_PASSWORD, {}
+      ], (err, r) => err ? reject(err) : resolve(r));
+    });
+
+    // Dominio: pickings outgoing done en rango, B2B (origin S* o name CLAxx/OUT/*B2B*)
+    const domain = [
+      ['picking_type_id.code', '=', 'outgoing'],
+      ['state', '=', 'done'],
+      ['date_done', '>=', fromIso],
+      ['date_done', '<=', toIso],
+      '|',
+        ['name', 'ilike', 'B2B'],
+        ['origin', 'ilike', 'S'],
+    ];
+
+    const pickings = await new Promise((resolve, reject) => {
+      models.methodCall('execute_kw', [
+        process.env.ODOO_DATABASE, uid, process.env.ODOO_PASSWORD,
+        'stock.picking', 'search_read',
+        [domain],
+        {
+          fields: ['id', 'name', 'partner_id', 'origin', 'date_done', 'carrier_id', 'company_id', 'sale_id'],
+          limit: parseInt(limit, 10),
+          order: 'date_done desc',
+        }
+      ], (err, r) => err ? reject(err) : resolve(r));
+    });
+
+    // Filtrar por company si se especifica
+    let filtered = pickings;
+    if (company) {
+      const c = String(company).toLowerCase();
+      filtered = pickings.filter(p => {
+        const compName = (p.company_id && p.company_id[1]) ? p.company_id[1].toLowerCase() : '';
+        const inName = (p.name || '').toLowerCase();
+        return compName.includes(c) || (c === 'gold' && inName.includes('clagd')) || (c === 'black' && inName.includes('clabd'));
+      });
+    }
+
+    // Marcar cuáles ya tienen devolución registrada
+    const devolucionesActuales = await getDevoluciones();
+    const yaRegistrados = new Set(devolucionesActuales.map(d => d.picking_id));
+    const yaPorPickingName = new Set(devolucionesActuales.map(d => d.picking_name));
+
+    const candidatos = filtered.map(p => {
+      let comp = 'Black';
+      const compName = (p.company_id && p.company_id[1]) || '';
+      if (compName.toLowerCase().includes('gold') || (p.name || '').includes('CLAGD')) comp = 'Gold';
+      const yaRegistrado = yaRegistrados.has(p.id) || yaPorPickingName.has(p.name);
+      return {
+        picking_id: p.id,
+        picking_name: p.name,
+        partner_name: p.partner_id ? p.partner_id[1] : null,
+        partner_id: p.partner_id ? p.partner_id[0] : null,
+        origin: p.origin,
+        sale_order: p.sale_id ? p.sale_id[1] : null,
+        carrier: p.carrier_id ? p.carrier_id[1] : null,
+        company: comp,
+        date_done: p.date_done,
+        ya_registrado_como_devolucion: yaRegistrado,
+      };
+    });
+
+    res.json({
+      from: fromIso,
+      to: toIso,
+      total_pickings: pickings.length,
+      total_filtrados: filtered.length,
+      ya_registrados: candidatos.filter(c => c.ya_registrado_como_devolucion).length,
+      candidatos_nuevos: candidatos.filter(c => !c.ya_registrado_como_devolucion).length,
+      candidatos,
+    });
+  } catch (error) {
+    console.error('❌ Error en discover:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================================================================================
+//  ⭐ INGEST batch (auditoría 2026-05-03): inyectar varias devoluciones de golpe.
+//  Cada una pasa por el flujo normal (saveDevoluciones + journalDevolucionEvent CREATE),
+//  pero permite preservar el id original si se proporciona.
+// ==================================================================================
+app.post("/api/devoluciones/ingest", async (req, res) => {
+  try {
+    const { items, actor = 'recovery-import' } = req.body;
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'items debe ser un array no vacío' });
+    }
+
+    const devoluciones = await getDevoluciones();
+    const yaPickingIds = new Set(devoluciones.map(d => d.picking_id));
+    const yaIds = new Set(devoluciones.map(d => d.id));
+
+    const inserted = [];
+    const skipped = [];
+
+    for (const it of items) {
+      if (!it.picking_id || !it.picking_name) {
+        skipped.push({ item: it, reason: 'falta picking_id o picking_name' });
+        continue;
+      }
+      if (yaPickingIds.has(it.picking_id)) {
+        skipped.push({ picking_id: it.picking_id, reason: 'picking ya registrado' });
+        continue;
+      }
+      const id = (it.id && !yaIds.has(it.id)) ? it.id : Date.now() + Math.floor(Math.random() * 1000);
+      yaIds.add(id);
+      yaPickingIds.add(it.picking_id);
+
+      const nueva = {
+        id,
+        picking_id: it.picking_id,
+        picking_name: it.picking_name,
+        partner_name: it.partner_name || null,
+        partner_id: it.partner_id || null,
+        company: it.company || 'Black',
+        tracking_retorno: it.tracking_retorno || null,
+        recibido_por: it.recibido_por || actor,
+        notas: it.notas || `Importado por recuperación: ${actor}`,
+        fecha_recepcion: it.fecha_recepcion || new Date().toISOString(),
+        estado: 'recibido',
+        created_at: it.created_at || new Date().toISOString(),
+        recovered: true,
+      };
+      devoluciones.push(nueva);
+      inserted.push(nueva);
+    }
+
+    if (inserted.length > 0) {
+      await saveDevoluciones(devoluciones);
+      // Un evento CREATE en journal por cada uno
+      for (const n of inserted) {
+        await journalDevolucionEvent({
+          action: 'CREATE',
+          id: n.id,
+          after: n,
+          actor,
+          meta: { source: 'ingest-recovery' },
+        });
+      }
+    }
+
+    console.log(`📥 [INGEST] Insertadas ${inserted.length} | Saltadas ${skipped.length}`);
+    res.json({ inserted: inserted.length, skipped: skipped.length, items_inserted: inserted, items_skipped: skipped });
+  } catch (error) {
+    console.error('❌ Error en ingest:', error);
     res.status(500).json({ error: error.message });
   }
 });
